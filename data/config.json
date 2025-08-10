@@ -1,0 +1,30 @@
+{
+  "time": "2025-05-08T08:00:00",
+  "wateringDurationMin": 60,
+  "toleranceWindowMin": 120,
+  "sensorReadIntervalMs": 1000,
+  "pauseResumeCheckIntervalMs": 1000,
+  "waterLevel": {
+    "minState": "HIGH",
+    "debounceSamples": 5,
+    "debounceIntervalMs": 50,
+    "pullMode": "PULLUP"
+  },
+  "bme280": {
+    "tempMin": 5.0,
+    "tempMax": 35.0,
+    "humMin": 30.0,
+    "humMax": 80.0,
+    "presMin": 950.0,
+    "presMax": 1050.0
+  },
+  "wifi": {
+    "apSsid": "AutoLaistymas",
+    "apPassword": "esp32automatinis",
+    "apChannel": 1,
+    "apHidden": false
+  },
+  "relay": {
+    "activeLevel": "LOW"
+  }
+}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="lt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AutoLaistymas</title>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <link rel="stylesheet" href="/ui/styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+</head>
+<body class="bg-gray-100 text-gray-900">
+  <div class="container mx-auto p-4 max-w-4xl">
+    <header class="mb-4">
+      <h1 class="text-2xl font-bold flex items-center gap-2"><i class="fa-solid fa-seedling"></i> AutoLaistymas</h1>
+      <p class="text-sm text-gray-600">ESP32 vietinė laistymo sistema</p>
+    </header>
+
+    <section class="bg-white shadow rounded p-4 mb-4">
+      <h2 class="font-semibold mb-2">Būsena</h2>
+      <div id="status" class="grid grid-cols-2 gap-2 text-sm">
+        <div><span class="font-medium">RTC laikas:</span> <span id="s-time">-</span></div>
+        <div><span class="font-medium">RTC validus:</span> <span id="s-rtcValid">-</span></div>
+        <div><span class="font-medium">Temperatūra:</span> <span id="s-temp">-</span></div>
+        <div><span class="font-medium">Drėgmė:</span> <span id="s-hum">-</span></div>
+        <div><span class="font-medium">Slėgis:</span> <span id="s-pres">-</span></div>
+        <div><span class="font-medium">Vandens lygis:</span> <span id="s-water">-</span></div>
+        <div><span class="font-medium">Būsena:</span> <span id="s-state">-</span></div>
+        <div><span class="font-medium">Likęs laikas:</span> <span id="s-remaining">-</span></div>
+      </div>
+      <div class="mt-3 flex gap-2">
+        <button id="btn-start" class="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700"><i class="fa-solid fa-play"></i> Start</button>
+        <button id="btn-stop" class="px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700"><i class="fa-solid fa-stop"></i> Stop</button>
+        <button id="btn-refresh" class="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"><i class="fa-solid fa-rotate"></i> Atnaujinti</button>
+      </div>
+      <div id="status-msg" class="text-sm mt-2"></div>
+    </section>
+
+    <section class="bg-white shadow rounded p-4 mb-4">
+      <h2 class="font-semibold mb-2">Laiko nustatymas</h2>
+      <div class="flex gap-2 items-center">
+        <input id="in-time" type="text" value="2025-01-01T12:00:00" class="border rounded px-2 py-1 w-64" />
+        <button id="btn-set-time" class="px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">Nustatyti RTC</button>
+      </div>
+      <div id="time-msg" class="text-sm mt-2"></div>
+    </section>
+
+    <section class="bg-white shadow rounded p-4">
+      <h2 class="font-semibold mb-2">Konfigūracija (peržiūra)</h2>
+      <pre id="config-json" class="text-xs bg-gray-50 p-2 rounded overflow-auto"></pre>
+    </section>
+  </div>
+
+  <script src="/ui/main.js"></script>
+</body>
+</html>

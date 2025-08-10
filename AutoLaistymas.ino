@@ -62,6 +62,87 @@ struct Config {
 
 Config currentConfig; // Globalus konfigūracijos objektas
 
+// -- Config (de)serializacijos helper'iai --
+static inline void configToJson(JsonDocument &doc, const Config &cfg) {
+  doc["time"] = cfg.time;
+  doc["wateringDurationMin"] = cfg.wateringDurationMin;
+  doc["toleranceWindowMin"] = cfg.toleranceWindowMin;
+  doc["sensorReadIntervalMs"] = cfg.sensorReadIntervalMs;
+  doc["pauseResumeCheckIntervalMs"] = cfg.pauseResumeCheckIntervalMs;
+
+  JsonObject waterLevelDoc = doc.createNestedObject("waterLevel");
+  waterLevelDoc["minState"] = cfg.waterLevel.minState;
+  waterLevelDoc["debounceSamples"] = cfg.waterLevel.debounceSamples;
+  waterLevelDoc["debounceIntervalMs"] = cfg.waterLevel.debounceIntervalMs;
+  waterLevelDoc["pullMode"] = cfg.waterLevel.pullMode;
+
+  JsonObject bme280Doc = doc.createNestedObject("bme280");
+  bme280Doc["tempMin"] = cfg.bme280.tempMin;
+  bme280Doc["tempMax"] = cfg.bme280.tempMax;
+  bme280Doc["humMin"] = cfg.bme280.humMin;
+  bme280Doc["humMax"] = cfg.bme280.humMax;
+  bme280Doc["presMin"] = cfg.bme280.presMin;
+  bme280Doc["presMax"] = cfg.bme280.presMax;
+
+  JsonObject wifiDoc = doc.createNestedObject("wifi");
+  wifiDoc["apSsid"] = cfg.wifi.apSsid;
+  wifiDoc["apPassword"] = cfg.wifi.apPassword;
+  wifiDoc["apChannel"] = cfg.wifi.apChannel;
+  wifiDoc["apHidden"] = cfg.wifi.apHidden;
+
+  JsonObject relayDoc = doc.createNestedObject("relay");
+  relayDoc["activeLevel"] = cfg.relay.activeLevel;
+}
+
+static inline bool applyConfigFromJson(const JsonDocument &doc, Config &cfg, bool *outWifiChanged = nullptr) {
+  bool wifiChanged = false;
+  if (doc.containsKey("time")) cfg.time = doc["time"].as<String>();
+  if (doc.containsKey("wateringDurationMin")) cfg.wateringDurationMin = doc["wateringDurationMin"];
+  if (doc.containsKey("toleranceWindowMin")) cfg.toleranceWindowMin = doc["toleranceWindowMin"];
+  if (doc.containsKey("sensorReadIntervalMs")) cfg.sensorReadIntervalMs = doc["sensorReadIntervalMs"];
+  if (doc.containsKey("pauseResumeCheckIntervalMs")) cfg.pauseResumeCheckIntervalMs = doc["pauseResumeCheckIntervalMs"];
+
+  JsonObject waterLevelDoc = doc["waterLevel"];
+  if (!waterLevelDoc.isNull()) {
+    if (waterLevelDoc.containsKey("minState")) cfg.waterLevel.minState = waterLevelDoc["minState"].as<String>();
+    if (waterLevelDoc.containsKey("debounceSamples")) cfg.waterLevel.debounceSamples = waterLevelDoc["debounceSamples"];
+    if (waterLevelDoc.containsKey("debounceIntervalMs")) cfg.waterLevel.debounceIntervalMs = waterLevelDoc["debounceIntervalMs"];
+    if (waterLevelDoc.containsKey("pullMode")) cfg.waterLevel.pullMode = waterLevelDoc["pullMode"].as<String>();
+  }
+
+  JsonObject bme280Doc = doc["bme280"];
+  if (!bme280Doc.isNull()) {
+    if (bme280Doc.containsKey("tempMin")) cfg.bme280.tempMin = bme280Doc["tempMin"];
+    if (bme280Doc.containsKey("tempMax")) cfg.bme280.tempMax = bme280Doc["tempMax"];
+    if (bme280Doc.containsKey("humMin")) cfg.bme280.humMin = bme280Doc["humMin"];
+    if (bme280Doc.containsKey("humMax")) cfg.bme280.humMax = bme280Doc["humMax"];
+    if (bme280Doc.containsKey("presMin")) cfg.bme280.presMin = bme280Doc["presMin"];
+    if (bme280Doc.containsKey("presMax")) cfg.bme280.presMax = bme280Doc["presMax"];
+  }
+
+  JsonObject wifiDoc = doc["wifi"];
+  if (!wifiDoc.isNull()) {
+    if (wifiDoc.containsKey("apSsid") && cfg.wifi.apSsid != wifiDoc["apSsid"].as<String>()) {
+      cfg.wifi.apSsid = wifiDoc["apSsid"].as<String>();
+      wifiChanged = true;
+    }
+    if (wifiDoc.containsKey("apPassword") && cfg.wifi.apPassword != wifiDoc["apPassword"].as<String>()) {
+      cfg.wifi.apPassword = wifiDoc["apPassword"].as<String>();
+      wifiChanged = true;
+    }
+    if (wifiDoc.containsKey("apChannel")) cfg.wifi.apChannel = wifiDoc["apChannel"];
+    if (wifiDoc.containsKey("apHidden")) cfg.wifi.apHidden = wifiDoc["apHidden"];
+  }
+
+  JsonObject relayDoc = doc["relay"];
+  if (!relayDoc.isNull()) {
+    if (relayDoc.containsKey("activeLevel")) cfg.relay.activeLevel = relayDoc["activeLevel"].as<String>();
+  }
+
+  if (outWifiChanged) *outWifiChanged = wifiChanged;
+  return true;
+}
+
 // --- Globalūs būsenos kintamieji (bus atnaujinami vėliau realiais duomenimis) ---
 float currentTemperature = -999.0; // Laipsniai Celsijaus
 float currentHumidity = -999.0;    // Procentai %
@@ -131,38 +212,7 @@ bool loadConfigurationFromFile() {
     Serial.println(error.f_str());
     return false;
   }
-  if (doc.containsKey("time")) currentConfig.time = doc["time"].as<String>();
-  if (doc.containsKey("wateringDurationMin")) currentConfig.wateringDurationMin = doc["wateringDurationMin"];
-  if (doc.containsKey("toleranceWindowMin")) currentConfig.toleranceWindowMin = doc["toleranceWindowMin"];
-  if (doc.containsKey("sensorReadIntervalMs")) currentConfig.sensorReadIntervalMs = doc["sensorReadIntervalMs"];
-  if (doc.containsKey("pauseResumeCheckIntervalMs")) currentConfig.pauseResumeCheckIntervalMs = doc["pauseResumeCheckIntervalMs"];
-  JsonObject waterLevelDoc = doc["waterLevel"];
-  if (!waterLevelDoc.isNull()) {
-    if (waterLevelDoc.containsKey("minState")) currentConfig.waterLevel.minState = waterLevelDoc["minState"].as<String>();
-    if (waterLevelDoc.containsKey("debounceSamples")) currentConfig.waterLevel.debounceSamples = waterLevelDoc["debounceSamples"];
-    if (waterLevelDoc.containsKey("debounceIntervalMs")) currentConfig.waterLevel.debounceIntervalMs = waterLevelDoc["debounceIntervalMs"];
-    if (waterLevelDoc.containsKey("pullMode")) currentConfig.waterLevel.pullMode = waterLevelDoc["pullMode"].as<String>();
-  }
-  JsonObject bme280Doc = doc["bme280"];
-  if (!bme280Doc.isNull()) {
-    if (bme280Doc.containsKey("tempMin")) currentConfig.bme280.tempMin = bme280Doc["tempMin"];
-    if (bme280Doc.containsKey("tempMax")) currentConfig.bme280.tempMax = bme280Doc["tempMax"];
-    if (bme280Doc.containsKey("humMin")) currentConfig.bme280.humMin = bme280Doc["humMin"];
-    if (bme280Doc.containsKey("humMax")) currentConfig.bme280.humMax = bme280Doc["humMax"];
-    if (bme280Doc.containsKey("presMin")) currentConfig.bme280.presMin = bme280Doc["presMin"];
-    if (bme280Doc.containsKey("presMax")) currentConfig.bme280.presMax = bme280Doc["presMax"];
-  }
-  JsonObject wifiDoc = doc["wifi"];
-  if (!wifiDoc.isNull()) {
-    if (wifiDoc.containsKey("apSsid")) currentConfig.wifi.apSsid = wifiDoc["apSsid"].as<String>();
-    if (wifiDoc.containsKey("apPassword")) currentConfig.wifi.apPassword = wifiDoc["apPassword"].as<String>();
-    if (wifiDoc.containsKey("apChannel")) currentConfig.wifi.apChannel = wifiDoc["apChannel"];
-    if (wifiDoc.containsKey("apHidden")) currentConfig.wifi.apHidden = wifiDoc["apHidden"];
-  }
-  JsonObject relayDoc = doc["relay"];
-  if (!relayDoc.isNull()) {
-    if (relayDoc.containsKey("activeLevel")) currentConfig.relay.activeLevel = relayDoc["activeLevel"].as<String>();
-  }
+  applyConfigFromJson(doc, currentConfig, nullptr);
   Serial.println("Configuration successfully loaded from /config.json.");
   return true;
 }
@@ -178,30 +228,7 @@ void saveConfigurationToFile() {
     return;
   }
   StaticJsonDocument<1024> doc;
-  doc["time"] = currentConfig.time;
-  doc["wateringDurationMin"] = currentConfig.wateringDurationMin;
-  doc["toleranceWindowMin"] = currentConfig.toleranceWindowMin;
-  doc["sensorReadIntervalMs"] = currentConfig.sensorReadIntervalMs;
-  doc["pauseResumeCheckIntervalMs"] = currentConfig.pauseResumeCheckIntervalMs;
-  JsonObject waterLevelDoc = doc.createNestedObject("waterLevel");
-  waterLevelDoc["minState"] = currentConfig.waterLevel.minState;
-  waterLevelDoc["debounceSamples"] = currentConfig.waterLevel.debounceSamples;
-  waterLevelDoc["debounceIntervalMs"] = currentConfig.waterLevel.debounceIntervalMs;
-  waterLevelDoc["pullMode"] = currentConfig.waterLevel.pullMode;
-  JsonObject bme280Doc = doc.createNestedObject("bme280");
-  bme280Doc["tempMin"] = currentConfig.bme280.tempMin;
-  bme280Doc["tempMax"] = currentConfig.bme280.tempMax;
-  bme280Doc["humMin"] = currentConfig.bme280.humMin;
-  bme280Doc["humMax"] = currentConfig.bme280.humMax;
-  bme280Doc["presMin"] = currentConfig.bme280.presMin;
-  bme280Doc["presMax"] = currentConfig.bme280.presMax;
-  JsonObject wifiDoc = doc.createNestedObject("wifi");
-  wifiDoc["apSsid"] = currentConfig.wifi.apSsid;
-  wifiDoc["apPassword"] = currentConfig.wifi.apPassword;
-  wifiDoc["apChannel"] = currentConfig.wifi.apChannel;
-  wifiDoc["apHidden"] = currentConfig.wifi.apHidden;
-  JsonObject relayDoc = doc.createNestedObject("relay");
-  relayDoc["activeLevel"] = currentConfig.relay.activeLevel;
+  configToJson(doc, currentConfig);
   if (serializeJson(doc, configFile) == 0) {
     Serial.println(F("Failed to write to config.json"));
   } else {
@@ -376,35 +403,7 @@ void setup() {
   // GET /config endpoint'as
   server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request){
     StaticJsonDocument<1024> doc; // Dydis turi atitikti save/load funkcijų dydį
-    doc["time"] = currentConfig.time;
-    doc["wateringDurationMin"] = currentConfig.wateringDurationMin;
-    doc["toleranceWindowMin"] = currentConfig.toleranceWindowMin;
-    doc["sensorReadIntervalMs"] = currentConfig.sensorReadIntervalMs;
-    doc["pauseResumeCheckIntervalMs"] = currentConfig.pauseResumeCheckIntervalMs;
-
-    JsonObject waterLevelDoc = doc.createNestedObject("waterLevel");
-    waterLevelDoc["minState"] = currentConfig.waterLevel.minState;
-    waterLevelDoc["debounceSamples"] = currentConfig.waterLevel.debounceSamples;
-    waterLevelDoc["debounceIntervalMs"] = currentConfig.waterLevel.debounceIntervalMs;
-    waterLevelDoc["pullMode"] = currentConfig.waterLevel.pullMode;
-
-    JsonObject bme280Doc = doc.createNestedObject("bme280");
-    bme280Doc["tempMin"] = currentConfig.bme280.tempMin;
-    bme280Doc["tempMax"] = currentConfig.bme280.tempMax;
-    bme280Doc["humMin"] = currentConfig.bme280.humMin;
-    bme280Doc["humMax"] = currentConfig.bme280.humMax;
-    bme280Doc["presMin"] = currentConfig.bme280.presMin;
-    bme280Doc["presMax"] = currentConfig.bme280.presMax;
-
-    JsonObject wifiDoc = doc.createNestedObject("wifi");
-    wifiDoc["apSsid"] = currentConfig.wifi.apSsid;
-    wifiDoc["apPassword"] = currentConfig.wifi.apPassword;
-    wifiDoc["apChannel"] = currentConfig.wifi.apChannel;
-    wifiDoc["apHidden"] = currentConfig.wifi.apHidden;
-
-    JsonObject relayDoc = doc.createNestedObject("relay");
-    relayDoc["activeLevel"] = currentConfig.relay.activeLevel;
-
+    configToJson(doc, currentConfig);
     String jsonResponse;
     serializeJson(doc, jsonResponse);
     request->send(200, "application/json", jsonResponse);
@@ -439,53 +438,11 @@ void setup() {
           return;
         }
 
-        // Atnaujiname currentConfig iš gauto JSON (panašiai kaip loadConfigurationFromFile)
-        // Čia reikalinga validacija, bet dėl paprastumo kol kas jos mažai
-        if (doc.containsKey("time")) currentConfig.time = doc["time"].as<String>();
-        if (doc.containsKey("wateringDurationMin")) currentConfig.wateringDurationMin = doc["wateringDurationMin"];
-        if (doc.containsKey("toleranceWindowMin")) currentConfig.toleranceWindowMin = doc["toleranceWindowMin"];
-        if (doc.containsKey("sensorReadIntervalMs")) currentConfig.sensorReadIntervalMs = doc["sensorReadIntervalMs"];
-        if (doc.containsKey("pauseResumeCheckIntervalMs")) currentConfig.pauseResumeCheckIntervalMs = doc["pauseResumeCheckIntervalMs"];
-
-        JsonObject waterLevelDoc = doc["waterLevel"];
-        if (!waterLevelDoc.isNull()) {
-          if (waterLevelDoc.containsKey("minState")) currentConfig.waterLevel.minState = waterLevelDoc["minState"].as<String>();
-          if (waterLevelDoc.containsKey("debounceSamples")) currentConfig.waterLevel.debounceSamples = waterLevelDoc["debounceSamples"];
-          if (waterLevelDoc.containsKey("debounceIntervalMs")) currentConfig.waterLevel.debounceIntervalMs = waterLevelDoc["debounceIntervalMs"];
-          if (waterLevelDoc.containsKey("pullMode")) currentConfig.waterLevel.pullMode = waterLevelDoc["pullMode"].as<String>();
-        }
-
-        JsonObject bme280Doc = doc["bme280"];
-        if (!bme280Doc.isNull()) {
-          if (bme280Doc.containsKey("tempMin")) currentConfig.bme280.tempMin = bme280Doc["tempMin"];
-          if (bme280Doc.containsKey("tempMax")) currentConfig.bme280.tempMax = bme280Doc["tempMax"];
-          if (bme280Doc.containsKey("humMin")) currentConfig.bme280.humMin = bme280Doc["humMin"];
-          if (bme280Doc.containsKey("humMax")) currentConfig.bme280.humMax = bme280Doc["humMax"];
-          if (bme280Doc.containsKey("presMin")) currentConfig.bme280.presMin = bme280Doc["presMin"];
-          if (bme280Doc.containsKey("presMax")) currentConfig.bme280.presMax = bme280Doc["presMax"];
-        }
-
-        JsonObject wifiDoc = doc["wifi"];
-        if (!wifiDoc.isNull()) {
-          // Wi-Fi SSID ir slaptažodžio keitimas pareikalaus perkrauti SoftAP.
-          // Kol kas, jei jie keičiami, pakeitimai įsigalios tik po perkrovimo.
-          // Vėliau galima pridėti logiką SoftAP perkrovimui.
-          bool wifiChanged = false;
-          if (wifiDoc.containsKey("apSsid") && currentConfig.wifi.apSsid != wifiDoc["apSsid"].as<String>()) {
-            currentConfig.wifi.apSsid = wifiDoc["apSsid"].as<String>();
-            wifiChanged = true;
-          }
-          if (wifiDoc.containsKey("apPassword") && currentConfig.wifi.apPassword != wifiDoc["apPassword"].as<String>()) {
-            currentConfig.wifi.apPassword = wifiDoc["apPassword"].as<String>();
-            wifiChanged = true;
-          }
-          if (wifiDoc.containsKey("apChannel")) currentConfig.wifi.apChannel = wifiDoc["apChannel"];
-          if (wifiDoc.containsKey("apHidden")) currentConfig.wifi.apHidden = wifiDoc["apHidden"];
-
-          if (wifiChanged) {
-             Serial.println("Wi-Fi settings changed. Restart required to apply new SSID/password.");
-             // TODO: Galima pridėti vėliavą ar mechanizmą, kuris UI praneštų apie būtiną perkrovimą.
-          }
+        bool wifiChanged = false;
+        applyConfigFromJson(doc, currentConfig, &wifiChanged);
+        if (wifiChanged) {
+          Serial.println("Wi-Fi settings changed. Restart required to apply new SSID/password.");
+          // TODO: Galima pridėti vėliavą ar mechanizmą, kuris UI praneštų apie būtiną perkrovimą.
         }
 
         saveConfigurationToFile(); // Išsaugome atnaujintą konfigūraciją

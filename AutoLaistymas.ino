@@ -15,6 +15,14 @@
 // Maksimalus debouncing imčių kiekis
 #define MAX_DEBOUNCE_SAMPLES 10
 
+// Pagalbinė funkcija gauti saugų debouncing imčių skaičių
+static inline int getEffectiveDebounceSamples() {
+  int s = currentConfig.waterLevel.debounceSamples;
+  if (s < 1) return 1;
+  if (s > MAX_DEBOUNCE_SAMPLES) return MAX_DEBOUNCE_SAMPLES;
+  return s;
+}
+
 // --- Konfigūracijos struktūra ---
 struct WaterLevelConfig {
   String minState;          // "HIGH" arba "LOW"
@@ -649,10 +657,8 @@ void loop() {
 
     // Nuskaityti vandens lygio jutiklį su debouncing
     // Įrašome naują reikšmę į masyvą
-    // Apsauga: jei dėl kokios nors priežasties debounceSamples < 1, laikome 1
-    int effectiveSamples = currentConfig.waterLevel.debounceSamples;
-    if (effectiveSamples < 1) effectiveSamples = 1;
-    if (effectiveSamples > MAX_DEBOUNCE_SAMPLES) effectiveSamples = MAX_DEBOUNCE_SAMPLES;
+    // Efektyvus imčių skaičius pagal helper'į (apsauga nuo neteisingų reikšmių)
+    int effectiveSamples = getEffectiveDebounceSamples();
     waterLevelReadings[waterLevelReadingIndex] = digitalRead(WATER_LEVEL_PIN);
     waterLevelReadingIndex = (waterLevelReadingIndex + 1) % effectiveSamples;
 
@@ -717,9 +723,6 @@ void loop() {
           systemState = systemStateToString(STATE_IDLE);
           break;
         }
-        Serial.println("Watering window closed. No watering initiated or finished.");
-        systemState = systemStateToString(STATE_IDLE);
-        break;
       }
       
       // Tikrinti jutiklius (vandens lygis, temperatūra).

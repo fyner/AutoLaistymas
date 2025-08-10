@@ -274,19 +274,10 @@ void setup() {
       // rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); 
       // Arba laikas bus nustatytas per /config/time POST, pagal dokumentaciją
       // Jei config'e yra teisingas ISO laikas, pabandome sureguliuoti RTC
-      if (currentConfig.time.length() == 19 &&
-          currentConfig.time.charAt(4) == '-' && currentConfig.time.charAt(7) == '-' &&
-          currentConfig.time.charAt(10) == 'T' && currentConfig.time.charAt(13) == ':' && currentConfig.time.charAt(16) == ':') {
-        uint16_t year = currentConfig.time.substring(0, 4).toInt();
-        uint8_t month = currentConfig.time.substring(5, 7).toInt();
-        uint8_t day = currentConfig.time.substring(8, 10).toInt();
-        uint8_t hour = currentConfig.time.substring(11, 13).toInt();
-        uint8_t minute = currentConfig.time.substring(14, 16).toInt();
-        uint8_t second = currentConfig.time.substring(17, 19).toInt();
-        if (year >= 2000 && year <= 2099) {
-          rtc.adjust(DateTime(year, month, day, hour, minute, second));
-          Serial.println("RTC sureguliuotas pagal config.time");
-        }
+      DateTime cfgTime;
+      if (parseIsoDateTime(currentConfig.time, cfgTime)) {
+        rtc.adjust(cfgTime);
+        Serial.println("RTC sureguliuotas pagal config.time");
       }
     }
     Serial.println("RTC modulis rastas.");
@@ -533,31 +524,13 @@ void setup() {
         }
 
         String timeStr = doc["time"].as<String>();
-        // Tikriname formatą YYYY-MM-DDTHH:MM:SS (19 simbolių)
-        if (timeStr.length() != 19 || timeStr.charAt(4) != '-' || timeStr.charAt(7) != '-' || 
-            timeStr.charAt(10) != 'T' || timeStr.charAt(13) != ':' || timeStr.charAt(16) != ':') {
-          request->send(400, "application/json", "{\"error\":\"Invalid time string format. Expected YYYY-MM-DDTHH:MM:SS\"}");
+        DateTime newTime;
+        if (!parseIsoDateTime(timeStr, newTime)) {
+          request->send(400, "application/json", "{\"error\":\"Invalid time string format or values. Expected YYYY-MM-DDTHH:MM:SS\"}");
           return;
         }
 
-        // Analizuojame laiko eilutę
-        // YYYY-MM-DDTHH:MM:SS
-        // 0123456789012345678
-        uint16_t year = timeStr.substring(0, 4).toInt();
-        uint8_t month = timeStr.substring(5, 7).toInt();
-        uint8_t day = timeStr.substring(8, 10).toInt();
-        uint8_t hour = timeStr.substring(11, 13).toInt();
-        uint8_t minute = timeStr.substring(14, 16).toInt();
-        uint8_t second = timeStr.substring(17, 19).toInt();
-
-        // Minimali validacija (galima praplėsti)
-        if (year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31 || 
-            hour > 23 || minute > 59 || second > 59) {
-          request->send(400, "application/json", "{\"error\":\"Invalid date/time values in string\"}");
-          return;
-        }
-
-        rtc.adjust(DateTime(year, month, day, hour, minute, second));
+        rtc.adjust(newTime);
         currentConfig.time = timeStr; // Atnaujiname konfigūracijos lauką
         saveConfigurationToFile(); // Išsaugome pakeitimus
 

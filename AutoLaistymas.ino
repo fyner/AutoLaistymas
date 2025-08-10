@@ -15,13 +15,8 @@
 // Maksimalus debouncing imčių kiekis
 #define MAX_DEBOUNCE_SAMPLES 10
 
-// Pagalbinė funkcija gauti saugų debouncing imčių skaičių
-static inline int getEffectiveDebounceSamples() {
-  int s = currentConfig.waterLevel.debounceSamples;
-  if (s < 1) return 1;
-  if (s > MAX_DEBOUNCE_SAMPLES) return MAX_DEBOUNCE_SAMPLES;
-  return s;
-}
+// Forward deklaracija, kad būtų galima naudoti setup() anksčiau
+bool parseIsoDateTime(const String &iso, DateTime &out);
 
 // --- Būsenų enum ir konvertavimo funkcijos (perkeltos aukščiau, kad būtų prieinamos visur) ---
 enum SystemStateEnum {
@@ -89,6 +84,14 @@ struct Config {
 
 Config currentConfig; // Globalus konfigūracijos objektas
 
+// Pagalbinė funkcija gauti saugų debouncing imčių skaičių (po Config deklaracijos)
+static inline int getEffectiveDebounceSamples() {
+  int s = currentConfig.waterLevel.debounceSamples;
+  if (s < 1) return 1;
+  if (s > MAX_DEBOUNCE_SAMPLES) return MAX_DEBOUNCE_SAMPLES;
+  return s;
+}
+
 // -- Config (de)serializacijos helper'iai --
 static inline void configToJson(JsonDocument &doc, const Config &cfg) {
   doc["time"] = cfg.time;
@@ -129,7 +132,7 @@ static inline bool applyConfigFromJson(const JsonDocument &doc, Config &cfg, boo
   if (doc.containsKey("sensorReadIntervalMs")) cfg.sensorReadIntervalMs = doc["sensorReadIntervalMs"];
   if (doc.containsKey("pauseResumeCheckIntervalMs")) cfg.pauseResumeCheckIntervalMs = doc["pauseResumeCheckIntervalMs"];
 
-  JsonObject waterLevelDoc = doc["waterLevel"];
+  JsonObjectConst waterLevelDoc = doc["waterLevel"].as<JsonObjectConst>();
   if (!waterLevelDoc.isNull()) {
     if (waterLevelDoc.containsKey("minState")) cfg.waterLevel.minState = waterLevelDoc["minState"].as<String>();
     if (waterLevelDoc.containsKey("debounceSamples")) cfg.waterLevel.debounceSamples = waterLevelDoc["debounceSamples"];
@@ -137,7 +140,7 @@ static inline bool applyConfigFromJson(const JsonDocument &doc, Config &cfg, boo
     if (waterLevelDoc.containsKey("pullMode")) cfg.waterLevel.pullMode = waterLevelDoc["pullMode"].as<String>();
   }
 
-  JsonObject bme280Doc = doc["bme280"];
+  JsonObjectConst bme280Doc = doc["bme280"].as<JsonObjectConst>();
   if (!bme280Doc.isNull()) {
     if (bme280Doc.containsKey("tempMin")) cfg.bme280.tempMin = bme280Doc["tempMin"];
     if (bme280Doc.containsKey("tempMax")) cfg.bme280.tempMax = bme280Doc["tempMax"];
@@ -147,7 +150,7 @@ static inline bool applyConfigFromJson(const JsonDocument &doc, Config &cfg, boo
     if (bme280Doc.containsKey("presMax")) cfg.bme280.presMax = bme280Doc["presMax"];
   }
 
-  JsonObject wifiDoc = doc["wifi"];
+  JsonObjectConst wifiDoc = doc["wifi"].as<JsonObjectConst>();
   if (!wifiDoc.isNull()) {
     if (wifiDoc.containsKey("apSsid") && cfg.wifi.apSsid != wifiDoc["apSsid"].as<String>()) {
       cfg.wifi.apSsid = wifiDoc["apSsid"].as<String>();
@@ -161,7 +164,7 @@ static inline bool applyConfigFromJson(const JsonDocument &doc, Config &cfg, boo
     if (wifiDoc.containsKey("apHidden")) cfg.wifi.apHidden = wifiDoc["apHidden"];
   }
 
-  JsonObject relayDoc = doc["relay"];
+  JsonObjectConst relayDoc = doc["relay"].as<JsonObjectConst>();
   if (!relayDoc.isNull()) {
     if (relayDoc.containsKey("activeLevel")) cfg.relay.activeLevel = relayDoc["activeLevel"].as<String>();
   }
@@ -681,7 +684,13 @@ void loop() {
           setState(STATE_WINDOW_OPEN);
           windowEndsAt = currentDateTime + TimeSpan(0, 0, currentConfig.toleranceWindowMin, 0); // Dienos, valandos, minutės, sekundės
           Serial.print("State changed to: WindowOpen. Window ends at: ");
-          Serial.println(windowEndsAt.timestamp(DateTime::TIMESTAMP_ISO8601));
+          {
+            char isoTime[20];
+            sprintf(isoTime, "%04d-%02d-%02dT%02d:%02d:%02d",
+                    windowEndsAt.year(), windowEndsAt.month(), windowEndsAt.day(),
+                    windowEndsAt.hour(), windowEndsAt.minute(), windowEndsAt.second());
+            Serial.println(isoTime);
+          }
         }
       }
       break;

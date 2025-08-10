@@ -23,6 +23,33 @@ static inline int getEffectiveDebounceSamples() {
   return s;
 }
 
+// --- Būsenų enum ir konvertavimo funkcijos (perkeltos aukščiau, kad būtų prieinamos visur) ---
+enum SystemStateEnum {
+  STATE_IDLE,
+  STATE_WINDOW_OPEN,
+  STATE_WATERING,
+  STATE_ERROR_PAUSED,
+  STATE_UNKNOWN
+};
+
+static inline SystemStateEnum systemStateFromString(String stateStr) {
+  if (stateStr == "Idle") return STATE_IDLE;
+  if (stateStr == "WindowOpen") return STATE_WINDOW_OPEN;
+  if (stateStr == "Watering") return STATE_WATERING;
+  if (stateStr == "ErrorPaused") return STATE_ERROR_PAUSED;
+  return STATE_UNKNOWN;
+}
+
+static inline String systemStateToString(SystemStateEnum stateEnum) {
+  switch (stateEnum) {
+    case STATE_IDLE: return "Idle";
+    case STATE_WINDOW_OPEN: return "WindowOpen";
+    case STATE_WATERING: return "Watering";
+    case STATE_ERROR_PAUSED: return "ErrorPaused";
+    default: return "Unknown";
+  }
+}
+
 // --- Konfigūracijos struktūra ---
 struct WaterLevelConfig {
   String minState;          // "HIGH" arba "LOW"
@@ -148,7 +175,8 @@ float currentTemperature = -999.0; // Laipsniai Celsijaus
 float currentHumidity = -999.0;    // Procentai %
 float currentPressure = -999.0;    // hPa
 String currentWaterLevelState = "UNKNOWN"; // Pvz., "HIGH", "LOW", pagal config.waterLevel.minState
-String systemState = "Idle"; // Pagal state machine: "Idle", "WindowOpen", "Watering", "ErrorPaused"
+SystemStateEnum currentState = STATE_IDLE; // enum pagrindinė būsena
+String systemState = systemStateToString(currentState); // String būsena, sinchronizuota su enum
 unsigned int remainingWateringTimeSec = 0; // Likęs laistymo laikas sekundėmis
 DateTime currentDateTime; // Globalus laiko objektas
 DateTime windowEndsAt;    // Kada baigiasi dabartinis laistymo langas
@@ -156,11 +184,25 @@ int lastWateringYMD = -1; // YYYYMMDD, kad nevykdyti daugiau nei kartą per dien
 
 // Relės būsena ir pagalbinės funkcijos
 bool relayActiveLow = true; // nustatoma setup() pagal config
+bool relayIsOn = false;     // optimizacijai: rašome į PIN tik keičiant būseną
 inline void turnRelayOn() {
   digitalWrite(RELAY_PIN, relayActiveLow ? LOW : HIGH);
 }
 inline void turnRelayOff() {
   digitalWrite(RELAY_PIN, relayActiveLow ? HIGH : LOW);
+}
+
+// Centralizuota būsena su relės valdymu ir String sinchronizacija
+static inline void setState(SystemStateEnum newState) {
+  if (newState == currentState) return;
+  // Valdyti relę pagal būseną
+  if (newState == STATE_WATERING) {
+    if (!relayIsOn) { turnRelayOn(); relayIsOn = true; }
+  } else {
+    if (relayIsOn) { turnRelayOff(); relayIsOn = false; }
+  }
+  currentState = newState;
+  systemState = systemStateToString(currentState);
 }
 
 // --- Numatytosios konfigūracijos reikšmės (pagal jūsų dokumentaciją) ---
@@ -365,6 +407,7 @@ void setup() {
   relayActiveLow = (currentConfig.relay.activeLevel == "LOW");
   pinMode(RELAY_PIN, OUTPUT);
   turnRelayOff(); // Saugiai išjungta paleidimo metu
+  relayIsOn = false;
 
   // 6. Web serverio maršrutai (pradinis pavyzdys)
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -499,7 +542,7 @@ void setup() {
 
   // GET /start endpoint'as - rankinis laistymo paleidimas
   server.on("/start", HTTP_GET, [](AsyncWebServerRequest *request){
-    if (systemState == "Watering") {
+    if (currentState == STATE_WATERING) {
       request->send(409, "application/json", "{\"error\":\"Watering already in progress\"}");
       return;
     }
@@ -509,9 +552,8 @@ void setup() {
       return;
     }
 
-    systemState = "Watering";
+    setState(STATE_WATERING);
     remainingWateringTimeSec = currentConfig.wateringDurationMin * 60;
-    turnRelayOn();
     Serial.println("Manual watering started. Duration: " + String(currentConfig.wateringDurationMin) + " min.");
     
     StaticJsonDocument<128> doc;
@@ -524,14 +566,13 @@ void setup() {
 
   // GET /stop endpoint'as - rankinis laistymo sustabdymas
   server.on("/stop", HTTP_GET, [](AsyncWebServerRequest *request){
-    if (systemState != "Watering") {
+    if (currentState != STATE_WATERING) {
       request->send(409, "application/json", "{\"error\":\"No watering cycle in progress to stop\"}");
       return;
     }
 
-    systemState = "Idle"; // Arba kita tinkama būsena, pvz., "WindowOpen", jei tai labiau tinka po rankinio sustabdymo
+    setState(STATE_IDLE); // Arba kita tinkama būsena, pvz., "WindowOpen", jei tai labiau tinka po rankinio sustabdymo
     remainingWateringTimeSec = 0;
-    turnRelayOff();
     Serial.println("Manual watering stopped.");
 
     StaticJsonDocument<64> doc;
@@ -619,7 +660,7 @@ void loop() {
   }
 
   // Būsenų automato (state machine) logika
-  switch (systemStateFromString(systemState)) {
+  switch (currentState) {
     case STATE_IDLE: {
       // Išparsuoti valandas, minutes, sekundes iš currentConfig.time
       // Formatas: YYYY-MM-DDTHH:MM:SS
@@ -637,7 +678,7 @@ void loop() {
                            (currentDateTime.hour() == targetHour && currentDateTime.minute() == targetMinute && currentDateTime.second() >= targetSecond);
         if (timeReached && lastWateringYMD != todayYMD) {
 
-          systemState = systemStateToString(STATE_WINDOW_OPEN);
+          setState(STATE_WINDOW_OPEN);
           windowEndsAt = currentDateTime + TimeSpan(0, 0, currentConfig.toleranceWindowMin, 0); // Dienos, valandos, minutės, sekundės
           Serial.print("State changed to: WindowOpen. Window ends at: ");
           Serial.println(windowEndsAt.timestamp(DateTime::TIMESTAMP_ISO8601));
@@ -650,7 +691,7 @@ void loop() {
       if (currentDateTime.isValid()) {
         if (currentDateTime >= windowEndsAt) {
           Serial.println("Watering window closed. No watering initiated or finished.");
-          systemState = systemStateToString(STATE_IDLE);
+          setState(STATE_IDLE);
           break;
         }
       }
@@ -658,10 +699,9 @@ void loop() {
       // Tikrinti jutiklius (vandens lygis, temperatūra).
       bool conditionsOk = checkWateringConditions();
       if (conditionsOk) {
-        systemState = systemStateToString(STATE_WATERING);
+        setState(STATE_WATERING);
         remainingWateringTimeSec = currentConfig.wateringDurationMin * 60;
         Serial.println("Conditions OK. State changed to: Watering");
-        turnRelayOn();
       } else {
         // Sąlygos netinkamos, liekame WindowOpen ir laukiame, gal pagerės, kol langas atviras
         // Arba pereiti į ErrorPaused, jei pvz., vandens lygis per žemas ir tai yra klaida
@@ -680,13 +720,10 @@ void loop() {
         if (remainingWateringTimeSec > 0) {
           remainingWateringTimeSec--;
           // Serial.print("Watering, time left: "); Serial.println(remainingWateringTimeSec);
-          // Užtikriname, kad relė įjungta
-          turnRelayOn();
           // Tikriname sąlygas laistymo metu; jei blogos, pauzė su klaida
           if (!checkWateringConditions()) {
             Serial.println("Conditions became invalid during watering. Pausing with error.");
-            systemState = systemStateToString(STATE_ERROR_PAUSED);
-            turnRelayOff();
+            setState(STATE_ERROR_PAUSED);
           }
         }       
       }
@@ -694,12 +731,11 @@ void loop() {
       if (remainingWateringTimeSec == 0) {
         // Laistymas baigtas
         Serial.println("Watering finished automatically or by timer.");
-        systemState = systemStateToString(STATE_IDLE); // Arba WindowOpen, jei langas dar nesibaigė?
+        setState(STATE_IDLE); // Arba WindowOpen, jei langas dar nesibaigė?
         // Pažymime, kad šiandien jau buvo laistyta
         if (currentDateTime.isValid()) {
           lastWateringYMD = currentDateTime.year()*10000 + currentDateTime.month()*100 + currentDateTime.day();
         }
-        turnRelayOff();
       }
       break;
     }
@@ -710,8 +746,7 @@ void loop() {
         lastErrorCheck = millis();
         if (checkWateringConditions()) {
           Serial.println("Error conditions cleared. Returning to Idle.");
-          systemState = systemStateToString(STATE_IDLE);
-          turnRelayOff();
+          setState(STATE_IDLE);
         }
       }
       break;
@@ -719,42 +754,14 @@ void loop() {
     default:
       // Nenumatyta būsena, grįžti į Idle
       Serial.println("Unknown system state! Returning to Idle.");
-      systemState = systemStateToString(STATE_IDLE);
+      setState(STATE_IDLE);
       break;
   }
 
   // Kitos asinchroninės užduotys, pvz., serverio užklausų apdorojimas, vyksta fone
 }
 
-// Helper funkcijos būsenų konvertavimui (jei pereisime prie enum)
-// Enum apibrėžimas būsenoms
-enum SystemStateEnum {
-  STATE_IDLE,
-  STATE_WINDOW_OPEN,
-  STATE_WATERING,
-  STATE_ERROR_PAUSED,
-  STATE_UNKNOWN
-};
-
-// Funkcija konvertuoti String į Enum
-SystemStateEnum systemStateFromString(String stateStr) {
-  if (stateStr == "Idle") return STATE_IDLE;
-  if (stateStr == "WindowOpen") return STATE_WINDOW_OPEN;
-  if (stateStr == "Watering") return STATE_WATERING;
-  if (stateStr == "ErrorPaused") return STATE_ERROR_PAUSED;
-  return STATE_UNKNOWN;
-}
-
-// Funkcija konvertuoti Enum į String
-String systemStateToString(SystemStateEnum stateEnum) {
-  switch (stateEnum) {
-    case STATE_IDLE: return "Idle";
-    case STATE_WINDOW_OPEN: return "WindowOpen";
-    case STATE_WATERING: return "Watering";
-    case STATE_ERROR_PAUSED: return "ErrorPaused";
-    default: return "Unknown";
-  }
-}
+// (enum helperiai perkelti į failo pradžią)
 
 // --- Pagalbinės funkcijos ---
 

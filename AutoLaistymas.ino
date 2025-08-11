@@ -949,6 +949,7 @@ void loop() {
         Serial.println("Watering window closed during watering. Stopping.");
         setState(STATE_IDLE);
         activeSlotIndex = -1;
+        remainingWateringTimeSec = 0; // Sustabdyti laistymo laikmatį
         break;
       }
       
@@ -975,13 +976,9 @@ void loop() {
         // Laistymas baigtas
         Serial.println("Watering finished automatically or by timer.");
         // Slot'as jau pažymėtas pradžioje, nepažymime dvigubai
-        // Tikrinti, ar langas dar atviras
-        if (currentDateTime.isValid() && currentDateTime < windowEndsAt) {
-          setState(STATE_WINDOW_OPEN); // Grįžti į lango būseną, jei dar atviras
-        } else {
-          setState(STATE_IDLE); // Lango pabaiga
-          activeSlotIndex = -1;
-        }
+        // Po laistymo visada grįžtame į IDLE, nes slot'as jau pažymėtas
+        setState(STATE_IDLE);
+        activeSlotIndex = -1;
       }
       break;
     }
@@ -999,12 +996,12 @@ void loop() {
       if (millis() - lastErrorCheck >= (unsigned long)currentConfig.pauseResumeCheckIntervalMs) {
         lastErrorCheck = millis();
         if (checkWateringConditions()) {
-          // Jei langas dar atviras – tęsiame; kitaip grįžtame į Idle
-          if (currentDateTime.isValid() && currentDateTime < windowEndsAt) {
+          // Jei langas dar atviras ir dar yra laistymo laiko – tęsiame
+          if (currentDateTime.isValid() && currentDateTime < windowEndsAt && remainingWateringTimeSec > 0) {
             Serial.println("Error conditions cleared. Resuming watering.");
             setState(STATE_WATERING);
           } else {
-            Serial.println("Error conditions cleared but window closed. Returning to Idle.");
+            Serial.println("Error conditions cleared but window closed or watering time finished. Returning to Idle.");
             setState(STATE_IDLE);
             activeSlotIndex = -1;
           }

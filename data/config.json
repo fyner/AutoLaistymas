@@ -26,5 +26,6 @@
   },
   "relay": {
     "activeLevel": "LOW"
-  }
+  },
+  "apiToken": ""
 }

@@ -34,7 +34,10 @@
 <body>
   <div class="header">
     <h1>🌿 Auto Laistymas</h1>
-    <div class="muted"><a href="/ui/settings.html">⚙️ Nustatymai</a></div>
+    <div class="muted">
+      <span id="authStatus" style="margin-right:12px; font-size:12px;">🔓</span>
+      <a href="/ui/settings.html">⚙️ Nustatymai</a>
+    </div>
   </div>
 
   <div class="grid">
@@ -86,7 +89,21 @@
             if (cfg.bme280[k] != null) limits[k] = Number(cfg.bme280[k]);
           });
         }
+        // Atnaujinti autentifikacijos statusą
+        updateAuthStatus();
       }catch(e){ /* tyliai, neblokuojame */ }
+    }
+    
+    function updateAuthStatus(){
+      const token = localStorage.getItem('apiToken');
+      const el = document.getElementById('authStatus');
+      if(token && token.trim()) {
+        el.textContent = '🔒';
+        el.title = 'Autentifikacija įjungta';
+      } else {
+        el.textContent = '🔓';
+        el.title = 'Autentifikacija išjungta';
+      }
     }
     function colorizeValue(elId, value, min, max){
       const el = document.getElementById(elId);
@@ -119,7 +136,14 @@
         document.getElementById('currentTime').textContent = (s.currentTime || '-').replace('T',' ');
         document.getElementById('nextStart').textContent = fmtHMS(s.nextStartInSec);
         document.getElementById('windowLeft').textContent = fmtHMS(s.windowRemainingSec);
-        setMsg('Atnaujinta.');
+        
+        // Klaidų indikacija jutikliams
+        const hasSensorErrors = (s.temp === -999.0 || s.hum === -999.0 || s.pres === -999.0);
+        if(hasSensorErrors) {
+          setMsg('Dėmesio: kai kurie jutikliai neveikia');
+        } else {
+          setMsg('Atnaujinta.');
+        }
       }catch(e){ setMsg('Klaida: '+e.message); }
     }
 

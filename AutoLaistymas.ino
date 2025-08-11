@@ -326,6 +326,23 @@ static inline void validateAndClampConfig(Config &cfg) {
   if (cfg.waterLevel.debounceSamples > MAX_DEBOUNCE_SAMPLES) cfg.waterLevel.debounceSamples = MAX_DEBOUNCE_SAMPLES;
   if (cfg.waterLevel.debounceIntervalMs < 1) cfg.waterLevel.debounceIntervalMs = 1;
   if (cfg.waterLevel.debounceIntervalMs > 1000) cfg.waterLevel.debounceIntervalMs = 1000;
+  
+  // BME280 ribų validacija
+  if (cfg.bme280.tempMin > cfg.bme280.tempMax) {
+    float temp = cfg.bme280.tempMin;
+    cfg.bme280.tempMin = cfg.bme280.tempMax;
+    cfg.bme280.tempMax = temp;
+  }
+  if (cfg.bme280.humMin > cfg.bme280.humMax) {
+    float hum = cfg.bme280.humMin;
+    cfg.bme280.humMin = cfg.bme280.humMax;
+    cfg.bme280.humMax = hum;
+  }
+  if (cfg.bme280.presMin > cfg.bme280.presMax) {
+    float pres = cfg.bme280.presMin;
+    cfg.bme280.presMin = cfg.bme280.presMax;
+    cfg.bme280.presMax = pres;
+  }
 }
 
 // --- Failų sistemos ir konfigūracijos funkcijos ---
@@ -913,7 +930,7 @@ void loop() {
         setState(STATE_WATERING);
         remainingWateringTimeSec = currentConfig.wateringDurationMin * 60;
         Serial.println("Conditions OK. State changed to: Watering");
-        // Pažymėti, kad šiandien šiam slot'ui laistymas pradėtas
+        // Pažymėti, kad šiandien šiam slot'ui laistymas pradėtas (tik čia, ne dvigubai)
         if (currentDateTime.isValid()) {
           int todayYMD = currentDateTime.year()*10000 + currentDateTime.month()*100 + currentDateTime.day();
           if (activeSlotIndex >= 0 && activeSlotIndex < MAX_WATERING_SLOTS) {
@@ -957,13 +974,7 @@ void loop() {
       if (remainingWateringTimeSec == 0) {
         // Laistymas baigtas
         Serial.println("Watering finished automatically or by timer.");
-        // Pažymime, kad šiandien jau buvo laistyta
-        if (currentDateTime.isValid()) {
-          int todayYMD = currentDateTime.year()*10000 + currentDateTime.month()*100 + currentDateTime.day();
-          if (activeSlotIndex >= 0 && activeSlotIndex < MAX_WATERING_SLOTS) {
-            lastWateringYMDForSlot[activeSlotIndex] = todayYMD;
-          }
-        }
+        // Slot'as jau pažymėtas pradžioje, nepažymime dvigubai
         // Tikrinti, ar langas dar atviras
         if (currentDateTime.isValid() && currentDateTime < windowEndsAt) {
           setState(STATE_WINDOW_OPEN); // Grįžti į lango būseną, jei dar atviras

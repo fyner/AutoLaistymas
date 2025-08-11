@@ -579,12 +579,13 @@ void setup() {
     }
     doc["nextStartInSec"] = nextStartInSec; // -1 jei nerasta
 
-    // Likęs lango laikas (sekundėmis), jei langas atidarytas
+    // Likęs lango laikas (sekundėmis), jei langas atidarytas ir dar galioja
     long windowRemainingSec = 0;
-    if (currentDateTime.isValid() && currentState == STATE_WINDOW_OPEN) {
+    if (currentDateTime.isValid() && (currentState == STATE_WINDOW_OPEN || currentState == STATE_WATERING || currentState == STATE_ERROR_PAUSED)) {
       if (currentDateTime < windowEndsAt) {
         TimeSpan rem = windowEndsAt - currentDateTime;
         windowRemainingSec = (long)rem.totalseconds();
+        if (windowRemainingSec < 0) windowRemainingSec = 0; // apsauga
       }
     }
     doc["windowRemainingSec"] = windowRemainingSec;
@@ -926,6 +927,14 @@ void loop() {
       break;
     }
     case STATE_WATERING: {
+      // Tikrinti, ar langas dar galioja (prieš kitą logiką)
+      if (currentDateTime.isValid() && currentDateTime >= windowEndsAt) {
+        Serial.println("Watering window closed during watering. Stopping.");
+        setState(STATE_IDLE);
+        activeSlotIndex = -1;
+        break;
+      }
+      
       // Laistymas valdomas per /start ir /stop komandas ir remainingWateringTimeSec
       // Čia reikės logikos automatiškai mažinti laiką, jei praleidome /start komandą
       // ir valdymas vyksta pilnai automatiškai.
@@ -948,7 +957,6 @@ void loop() {
       if (remainingWateringTimeSec == 0) {
         // Laistymas baigtas
         Serial.println("Watering finished automatically or by timer.");
-        setState(STATE_IDLE); // Arba WindowOpen, jei langas dar nesibaigė?
         // Pažymime, kad šiandien jau buvo laistyta
         if (currentDateTime.isValid()) {
           int todayYMD = currentDateTime.year()*10000 + currentDateTime.month()*100 + currentDateTime.day();
@@ -956,12 +964,25 @@ void loop() {
             lastWateringYMDForSlot[activeSlotIndex] = todayYMD;
           }
         }
-        // Nebelieka aktyvaus lango/slot'o po užbaigimo
-        activeSlotIndex = -1;
+        // Tikrinti, ar langas dar atviras
+        if (currentDateTime.isValid() && currentDateTime < windowEndsAt) {
+          setState(STATE_WINDOW_OPEN); // Grįžti į lango būseną, jei dar atviras
+        } else {
+          setState(STATE_IDLE); // Lango pabaiga
+          activeSlotIndex = -1;
+        }
       }
       break;
     }
     case STATE_ERROR_PAUSED: {
+      // Tikrinti, ar langas dar galioja (prieš kitą logiką)
+      if (currentDateTime.isValid() && currentDateTime >= windowEndsAt) {
+        Serial.println("Watering window closed during error pause. Returning to Idle.");
+        setState(STATE_IDLE);
+        activeSlotIndex = -1;
+        break;
+      }
+      
       // Periodiškai tikriname, ar sąlygos atsigavo
       static unsigned long lastErrorCheck = 0;
       if (millis() - lastErrorCheck >= (unsigned long)currentConfig.pauseResumeCheckIntervalMs) {

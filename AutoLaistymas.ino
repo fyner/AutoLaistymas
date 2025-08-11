@@ -618,7 +618,7 @@ void setup() {
       if (index + len == total) {
         // Autentifikacija (jei nustatytas tokenas)
         if (currentConfig.apiToken.length() > 0) {
-          AsyncWebHeader* h = request->getHeader("X-API-Token");
+          const AsyncWebHeader* h = request->getHeader("X-API-Token");
           if (!h || h->value() != currentConfig.apiToken) {
             delete body; request->_tempObject = nullptr;
             request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
@@ -691,7 +691,7 @@ void setup() {
 
       if (index + len == total) {
         if (currentConfig.apiToken.length() > 0) {
-          AsyncWebHeader* h = request->getHeader("X-API-Token");
+          const AsyncWebHeader* h = request->getHeader("X-API-Token");
           if (!h || h->value() != currentConfig.apiToken) {
             delete body; request->_tempObject = nullptr;
             request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
@@ -733,7 +733,7 @@ void setup() {
   // POST /start endpoint'as - rankinis laistymo paleidimas
   server.on("/start", HTTP_POST, [](AsyncWebServerRequest *request){
     if (currentConfig.apiToken.length() > 0) {
-      AsyncWebHeader* h = request->getHeader("X-API-Token");
+      const AsyncWebHeader* h = request->getHeader("X-API-Token");
       if (!h || h->value() != currentConfig.apiToken) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     }
     if (currentState == STATE_WATERING) {
@@ -761,7 +761,7 @@ void setup() {
   // POST /stop endpoint'as - rankinis laistymo sustabdymas
   server.on("/stop", HTTP_POST, [](AsyncWebServerRequest *request){
     if (currentConfig.apiToken.length() > 0) {
-      AsyncWebHeader* h = request->getHeader("X-API-Token");
+      const AsyncWebHeader* h = request->getHeader("X-API-Token");
       if (!h || h->value() != currentConfig.apiToken) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     }
     if (currentState != STATE_WATERING) {
@@ -771,7 +771,7 @@ void setup() {
   // POST /restart endpoint'as - prietaiso perkrovimas
   server.on("/restart", HTTP_POST, [](AsyncWebServerRequest *request){
     if (currentConfig.apiToken.length() > 0) {
-      AsyncWebHeader* h = request->getHeader("X-API-Token");
+      const AsyncWebHeader* h = request->getHeader("X-API-Token");
       if (!h || h->value() != currentConfig.apiToken) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     }
     request->send(200, "application/json", "{\"success\":\"Restarting\"}");

@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="lt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nustatymai - Auto Laistymas</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 0; padding: 16px; background:#f6f7fb; color:#111; padding-bottom:56px; }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    h2 { margin: 20px 0 8px; font-size: 16px; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; }
+    .col { flex:1 1 260px; min-width: 240px; }
+    label { display:block; font-size: 13px; color:#374151; margin-bottom:4px; }
+    input, select { width: 100%; box-sizing: border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#111; }
+    .actions { display:flex; gap:8px; margin-top: 10px; }
+    button { padding:8px 12px; border-radius:6px; border:1px solid #2563eb; background:#2563eb; color:white; cursor:pointer; }
+    button.secondary { border-color:#6b7280; background:#6b7280; }
+    .muted { color:#6b7280; font-size:13px; }
+    .ok { color:#065f46; }
+    .err { color:#991b1b; }
+    .msg { margin-top:8px; font-size:13px; min-height:1.6em; line-height:1.3; overflow-wrap:anywhere; }
+    .header { position:sticky; top:0; background:#f6f7fb; z-index:1000; display:flex; align-items:center; justify-content:space-between; margin:0 0 10px; padding-top:4px; }
+    .header .muted a { color:#2563eb; text-decoration:none; font-size:14px; padding:4px 6px; display:inline-flex; align-items:center; gap:6px; }
+    .header .muted a i { width:16px; text-align:center; }
+    .global { position:fixed; left:0; right:0; bottom:0; padding:8px 12px; font-size:14px; color:#fff; background:#374151; z-index:1000; }
+    .global.ok { background:#065f46; }
+    .global.err { background:#991b1b; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>⚙️ Nustatymai</h1>
+    <div class="muted"><a href="/">🏠 Pradžia</a></div>
+  </div>
+
+  <div class="card">
+    <h2>Laistymo laikai (per dieną)</h2>
+    <div class="row">
+      <div class="col" style="flex:1 1 100%">
+        <ul id="timesList" style="list-style:none; padding:0; margin:0; display:flex; flex-wrap:wrap; gap:8px;"></ul>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <label for="newTimeInput">Pridėti laiką (HH:MM)</label>
+        <input id="newTimeInput" type="time" step="60" placeholder="06:00">
+      </div>
+      <div class="col" style="align-self:end; flex:0 0 auto; min-width:140px;">
+        <button id="addTimeBtn" type="button">➕ Pridėti</button>
+      </div>
+    </div>
+    <div class="muted">Patarimas: rekomenduojama 1–8 laikai per dieną. Pavyzdys: 06:00 ir 20:00.</div>
+  </div>
+
+  
+
+  <div class="card">
+    <h2>Laiko nustatymai (RTC)</h2>
+    <div class="row">
+      <div class="col">
+        <label>Data</label>
+        <div class="row" style="gap:8px">
+          <div class="col" style="flex:0 0 120px; min-width:120px">
+            <input id="dateYear" type="number" min="2000" max="2099" placeholder="2025">
+          </div>
+          <div class="col" style="flex:0 0 100px; min-width:100px">
+            <input id="dateMonth" type="number" min="1" max="12" placeholder="08">
+          </div>
+          <div class="col" style="flex:0 0 100px; min-width:100px">
+            <input id="dateDay" type="number" min="1" max="31" placeholder="11">
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <label for="timeHms">Laikas</label>
+        <input id="timeHms" type="time" step="1" placeholder="02:36:37">
+      </div>
+    </div>
+    <div class="muted" id="timePreview">YYYY-MM-DD HH:MM:SS</div>
+    <div class="actions">
+      <button id="setNowBtn" type="button">🕒 Nustatyti dabartinį naršyklės laiką</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Baziniai nustatymai</h2>
+    <div class="row">
+      <div class="col">
+        <label for="wateringDurationMin">Laistymo trukmė (min)</label>
+        <input id="wateringDurationMin" type="number" min="1" step="1">
+      </div>
+      <div class="col">
+        <label for="toleranceWindowMin">Laistymo langas (min)</label>
+        <input id="toleranceWindowMin" type="number" min="1" step="1">
+      </div>
+      <div class="col">
+        <label for="sensorReadIntervalMs">Jutiklių nuskaitymo intervalas (ms)</label>
+        <input id="sensorReadIntervalMs" type="number" min="100" step="50">
+      </div>
+      <div class="col">
+        <label for="pauseResumeCheckIntervalMs">Pauzės tikrinimo intervalas (ms)</label>
+        <input id="pauseResumeCheckIntervalMs" type="number" min="100" step="50">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Vandens lygio jutiklis</h2>
+    <div class="row">
+      <div class="col">
+        <label for="wlMinState">Minimalus lygio stovis</label>
+        <select id="wlMinState">
+          <option value="HIGH">HIGH</option>
+          <option value="LOW">LOW</option>
+        </select>
+      </div>
+      <div class="col">
+        <label for="wlDebounceSamples">Debounce imčių skaičius (1-10)</label>
+        <input id="wlDebounceSamples" type="number" min="1" max="10" step="1">
+      </div>
+      <div class="col">
+        <label for="wlDebounceIntervalMs">Debounce intervalas (ms)</label>
+        <input id="wlDebounceIntervalMs" type="number" min="1" step="1">
+      </div>
+      <div class="col">
+        <label for="wlPullMode">Įėjimo režimas</label>
+        <select id="wlPullMode">
+          <option value="PULLUP">PULLUP</option>
+          <option value="PULLDOWN">PULLDOWN</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>BME280 ribos</h2>
+    <div class="row">
+      <div class="col">
+        <label for="bmeTempMin">Temperatūra min (°C)</label>
+        <input id="bmeTempMin" type="number" step="0.1">
+      </div>
+      <div class="col">
+        <label for="bmeTempMax">Temperatūra max (°C)</label>
+        <input id="bmeTempMax" type="number" step="0.1">
+      </div>
+      <div class="col">
+        <label for="bmeHumMin">Drėgmė min (%)</label>
+        <input id="bmeHumMin" type="number" step="0.1">
+      </div>
+      <div class="col">
+        <label for="bmeHumMax">Drėgmė max (%)</label>
+        <input id="bmeHumMax" type="number" step="0.1">
+      </div>
+      <div class="col">
+        <label for="bmePresMin">Slėgis min (hPa)</label>
+        <input id="bmePresMin" type="number" step="0.1">
+      </div>
+      <div class="col">
+        <label for="bmePresMax">Slėgis max (hPa)</label>
+        <input id="bmePresMax" type="number" step="0.1">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Wi‑Fi (SoftAP)</h2>
+    <div class="row">
+      <div class="col">
+        <label for="apSsid">SSID</label>
+        <input id="apSsid" type="text">
+      </div>
+      <div class="col">
+        <label for="apPassword">Slaptažodis</label>
+        <input id="apPassword" type="text">
+      </div>
+      <div class="col">
+        <label for="apChannel">Kanalas</label>
+        <input id="apChannel" type="number" min="1" max="13" step="1">
+      </div>
+      <div class="col">
+        <label for="apHidden">Paslėptas SSID</label>
+        <select id="apHidden">
+          <option value="false">Ne</option>
+          <option value="true">Taip</option>
+        </select>
+      </div>
+    </div>
+    <div class="muted">ℹ️ Pastaba: pakeitus SSID/slaptažodį, reikės perkrauti įrenginį.</div>
+  </div>
+
+  <div class="card">
+    <h2>Relė</h2>
+    <div class="row">
+      <div class="col">
+        <label for="relayActiveLevel">Aktyvus lygis</label>
+        <select id="relayActiveLevel">
+          <option value="LOW">LOW (dažniausia)</option>
+          <option value="HIGH">HIGH</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>UI atnaujinimas</h2>
+    <div class="row">
+      <div class="col">
+        <label for="uiRefreshMs">Atnaujinimo intervalas (ms)</label>
+        <input id="uiRefreshMs" type="number" min="250" step="250" placeholder="1000">
+        
+        <div class="muted">Taikoma tik naršyklės UI (ne įrenginio logikai). Numatytasis: 1000 ms. Min.: 250 ms.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="reloadBtn" class="secondary" type="button">🔁 Perkrauti iš /config</button>
+    
+  </div>
+
+  <div id="globalMsg" class="global"></div>
+
+  <script>
+    function pad(n){ return String(n).padStart(2,'0'); }
+    function toIsoNoTZ(d){
+      return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
+    }
+
+    function setMessage(_el, text, ok){
+      const bar = document.getElementById('globalMsg');
+      bar.textContent = text || '';
+      bar.className = 'global ' + (ok === true ? 'ok' : ok === false ? 'err' : '');
+    }
+
+    // Laistymo laikų būsena
+    let wateringTimes = [];
+
+    function getApiToken(){ return (localStorage.getItem('apiToken')||'').trim(); }
+    function buildAuthHeaders(){ const h={}; const tok=getApiToken(); if(tok) h['X-API-Token']=tok; return h; }
+
+    async function loadConfig(){
+      setMessage(document.getElementById('loadMsg'), 'Kraunama konfigūracija...', null);
+      try {
+        const res = await fetch('/config');
+        if(!res.ok) throw new Error('Atsakymas: '+res.status);
+        const cfg = await res.json();
+        // Laikas -> išskaidyti į YYYY, MM, DD ir HH:MM:SS
+        (function(){
+          const iso = (cfg.time||'').trim();
+          let Y='',M='',D='',h='00',m='00',s='00';
+          if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(iso)){
+            Y = iso.slice(0,4); M = iso.slice(5,7); D = iso.slice(8,10);
+            h = iso.slice(11,13); m = iso.slice(14,16); s = iso.slice(17,19);
+          }
+          document.getElementById('dateYear').value = Y;
+          document.getElementById('dateMonth').value = M;
+          document.getElementById('dateDay').value = D;
+          document.getElementById('timeHms').value = h+":"+m+":"+s;
+          updateTimePreview();
+        })();
+        // Baziniai
+        document.getElementById('wateringDurationMin').value = cfg.wateringDurationMin ?? '';
+        document.getElementById('toleranceWindowMin').value = cfg.toleranceWindowMin ?? '';
+        document.getElementById('sensorReadIntervalMs').value = cfg.sensorReadIntervalMs ?? '';
+        document.getElementById('pauseResumeCheckIntervalMs').value = cfg.pauseResumeCheckIntervalMs ?? '';
+        // WL
+        document.getElementById('wlMinState').value = cfg.waterLevel?.minState || 'HIGH';
+        document.getElementById('wlDebounceSamples').value = cfg.waterLevel?.debounceSamples ?? '';
+        document.getElementById('wlDebounceIntervalMs').value = cfg.waterLevel?.debounceIntervalMs ?? '';
+        document.getElementById('wlPullMode').value = cfg.waterLevel?.pullMode || 'PULLUP';
+        // BME
+        document.getElementById('bmeTempMin').value = cfg.bme280?.tempMin ?? '';
+        document.getElementById('bmeTempMax').value = cfg.bme280?.tempMax ?? '';
+        document.getElementById('bmeHumMin').value = cfg.bme280?.humMin ?? '';
+        document.getElementById('bmeHumMax').value = cfg.bme280?.humMax ?? '';
+        document.getElementById('bmePresMin').value = cfg.bme280?.presMin ?? '';
+        document.getElementById('bmePresMax').value = cfg.bme280?.presMax ?? '';
+        // WiFi
+        document.getElementById('apSsid').value = cfg.wifi?.apSsid ?? '';
+        document.getElementById('apPassword').value = cfg.wifi?.apPassword ?? '';
+        document.getElementById('apChannel').value = cfg.wifi?.apChannel ?? '';
+        document.getElementById('apHidden').value = String(cfg.wifi?.apHidden ?? false);
+        // Relay
+        document.getElementById('relayActiveLevel').value = cfg.relay?.activeLevel || 'LOW';
+        // UI refresh interval from localStorage
+        const uiMs = parseInt(localStorage.getItem('uiRefreshMs')||'1000', 10);
+        document.getElementById('uiRefreshMs').value = (Number.isFinite(uiMs) && uiMs >= 250) ? uiMs : 1000;
+        // Laistymo laikai
+        wateringTimes = Array.isArray(cfg.wateringTimes) ? cfg.wateringTimes.filter(isValidHHMM) : [];
+        if(typeof renderTimes === 'function') renderTimes();
+        setMessage(null, 'Konfigūracija įkelta.', true);
+      } catch(e){
+        setMessage(null, 'Klaida skaitant /config: '+e.message, false);
+      }
+    }
+
+    function collectConfig(){
+      const v = id => document.getElementById(id).value;
+      const n = id => Number(v(id));
+      const cfg = {};
+      // time netraukiame – valdomas per atskirą /config/time
+
+      // Baziniai: tik jei skaičius teisingas
+      const addNum = (id, key) => { const num = n(id); if(Number.isFinite(num)) cfg[key] = num; };
+      addNum('wateringDurationMin','wateringDurationMin');
+      addNum('toleranceWindowMin','toleranceWindowMin');
+      addNum('sensorReadIntervalMs','sensorReadIntervalMs');
+      addNum('pauseResumeCheckIntervalMs','pauseResumeCheckIntervalMs');
+
+      // WaterLevel
+      const wl = {};
+      wl.minState = v('wlMinState');
+      const wlDebS = n('wlDebounceSamples'); if(Number.isFinite(wlDebS)) wl.debounceSamples = wlDebS;
+      const wlDebI = n('wlDebounceIntervalMs'); if(Number.isFinite(wlDebI)) wl.debounceIntervalMs = wlDebI;
+      wl.pullMode = v('wlPullMode');
+      // įtraukti, jei yra bent viena reikšmė
+      if(Object.keys(wl).length) cfg.waterLevel = wl;
+
+      // BME
+      const bme = {};
+      const tmin = n('bmeTempMin'); if(Number.isFinite(tmin)) bme.tempMin = tmin;
+      const tmax = n('bmeTempMax'); if(Number.isFinite(tmax)) bme.tempMax = tmax;
+      const hmin = n('bmeHumMin'); if(Number.isFinite(hmin)) bme.humMin = hmin;
+      const hmax = n('bmeHumMax'); if(Number.isFinite(hmax)) bme.humMax = hmax;
+      const pmin = n('bmePresMin'); if(Number.isFinite(pmin)) bme.presMin = pmin;
+      const pmax = n('bmePresMax'); if(Number.isFinite(pmax)) bme.presMax = pmax;
+      if(Object.keys(bme).length) cfg.bme280 = bme;
+
+      // WiFi
+      const wifi = {};
+      if(v('apSsid')) wifi.apSsid = v('apSsid');
+      if(v('apPassword')) wifi.apPassword = v('apPassword');
+      const ch = n('apChannel'); if(Number.isFinite(ch)) wifi.apChannel = ch;
+      wifi.apHidden = (v('apHidden') === 'true');
+      if(Object.keys(wifi).length) cfg.wifi = wifi;
+
+      // Relay
+      cfg.relay = { activeLevel: v('relayActiveLevel') };
+
+      // Watering times (array of HH:MM)
+      const items = Array.from(document.querySelectorAll('#timesList li[data-time]')).map(li => li.getAttribute('data-time'));
+      cfg.wateringTimes = items; // siųsti ir tuščią masyvą, kad išvalytų laikus
+
+      return cfg;
+    }
+
+    async function saveConfig(){
+      setMessage(null, 'Siunčiama konfigūracija...', null);
+      try{
+        const body = JSON.stringify(collectConfig());
+        const headers = Object.assign({ 'Content-Type':'application/json' }, buildAuthHeaders());
+        const res = await fetch('/config', { method:'POST', headers, body });
+        const text = await res.text();
+        if(!res.ok) throw new Error(text||('HTTP '+res.status));
+        setMessage(null, 'Konfigūracija išsaugota. '+text, true);
+      }catch(e){
+        setMessage(null, 'Nepavyko išsaugoti: '+e.message, false);
+      }
+    }
+
+    function buildIsoFromControls(){
+      const Y = String((document.getElementById('dateYear').value||'').trim());
+      const M = String((document.getElementById('dateMonth').value||'').trim()).padStart(2,'0');
+      const D = String((document.getElementById('dateDay').value||'').trim()).padStart(2,'0');
+      const hms = String((document.getElementById('timeHms').value||'').trim()); // HH:MM[:SS]
+      if(!/^\d{4}$/.test(Y)) return '';
+      if(!/^\d{2}$/.test(M) || Number(M)<1 || Number(M)>12) return '';
+      if(!/^\d{2}$/.test(D) || Number(D)<1 || Number(D)>31) return '';
+      let hh='00', mm='00', ss='00';
+      if(/^\d{2}:\d{2}(:\d{2})?$/.test(hms)){
+        const parts = hms.split(':');
+        hh = parts[0]; mm = parts[1]; ss = parts[2] || '00';
+        if(Number(hh)>23 || Number(mm)>59 || Number(ss)>59) return '';
+      } else { return ''; }
+      return `${Y}-${M}-${D}T${hh}:${mm}:${ss}`;
+    }
+
+    function updateTimePreview(){
+      const iso = buildIsoFromControls();
+      const el = document.getElementById('timePreview');
+      el.textContent = iso ? iso.replace('T',' ') : 'YYYY-MM-DD HH:MM:SS';
+    }
+
+    async function saveTime(){
+      const t = buildIsoFromControls();
+      if(!t){ setMessage(null, 'Blogas datos/laiko formatas. Tikimasi atskirų laukų: YYYY, MM, DD ir HH:MM[:SS]', false); return; }
+      setMessage(null, 'Siunčiamas naujas RTC laikas...', null);
+      try{
+        const headers = Object.assign({ 'Content-Type':'application/json' }, buildAuthHeaders());
+        const res = await fetch('/config/time', { method:'POST', headers, body: JSON.stringify({ time: t }) });
+        const text = await res.text();
+        if(!res.ok) throw new Error(text||('HTTP '+res.status));
+        setMessage(null, 'Laikas atnaujintas. '+text, true);
+      }catch(e){
+        setMessage(null, 'Nepavyko atnaujinti laiko: '+e.message, false);
+      }
+    }
+
+    // Events
+    document.getElementById('reloadBtn').addEventListener('click', loadConfig);
+    document.getElementById('setNowBtn').addEventListener('click', function(){
+      const now = new Date();
+      document.getElementById('dateYear').value = String(now.getFullYear());
+      document.getElementById('dateMonth').value = String(now.getMonth()+1).padStart(2,'0');
+      document.getElementById('dateDay').value = String(now.getDate()).padStart(2,'0');
+      document.getElementById('timeHms').value = String(now.getHours()).padStart(2,'0')+":"+String(now.getMinutes()).padStart(2,'0')+":"+String(now.getSeconds()).padStart(2,'0');
+      updateTimePreview();
+      saveTime();
+    });
+    // Auto-save time on blur/enter for each control
+    ['dateYear','dateMonth','dateDay','timeHms'].forEach(id=>{
+      const el = document.getElementById(id);
+      el.addEventListener('blur', ()=>{ updateTimePreview(); saveTime(); });
+      el.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); updateTimePreview(); saveTime(); }});
+      el.addEventListener('change', updateTimePreview);
+    });
+    // UI refresh interval auto-save on change
+    document.getElementById('uiRefreshMs').addEventListener('change', function(){
+      const v = parseInt(document.getElementById('uiRefreshMs').value, 10);
+      if(!Number.isFinite(v) || v < 250){ setMessage(null, 'Neteisinga reikšmė. Minimali: 250 ms', false); return; }
+      localStorage.setItem('uiRefreshMs', String(v));
+      setMessage(null, 'UI atnaujinimo intervalas išsaugotas: '+v+' ms.', true);
+    });
+
+    // Auto-save for all config fields on change/blur (except time/uiRefreshMs which have own handlers)
+    function isConfigControl(id){ return !['dateYear','dateMonth','dateDay','timeHms','uiRefreshMs','newTimeInput'].includes(id); }
+    function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+    const debouncedSave = debounce(saveConfig, 500);
+    document.addEventListener('change', function(e){ if(e.target && (e.target.tagName==='INPUT'||e.target.tagName==='SELECT')){ if(isConfigControl(e.target.id)) debouncedSave(); }});
+    document.addEventListener('blur', function(e){ if(e.target && (e.target.tagName==='INPUT')){ if(isConfigControl(e.target.id)) debouncedSave(); } }, true);
+
+    // Init
+    loadConfig();
+
+    // --- Laistymo laikų UI ---
+    function isValidHHMM(s){ return /^\d{2}:\d{2}$/.test(s) && Number(s.slice(0,2))>=0 && Number(s.slice(0,2))<=23 && Number(s.slice(3,5))>=0 && Number(s.slice(3,5))<=59; }
+    function renderTimes(){
+      const ul = document.getElementById('timesList');
+      ul.innerHTML = '';
+      wateringTimes.forEach((t, idx) => {
+        const li = document.createElement('li');
+        li.setAttribute('data-time', t);
+        li.style.display = 'inline-flex';
+        li.style.alignItems = 'center';
+        li.style.gap = '6px';
+        li.style.border = '1px solid #d1d5db';
+        li.style.padding = '6px 8px';
+        li.style.borderRadius = '6px';
+        li.style.background = '#fff';
+        const span = document.createElement('span'); span.textContent = t;
+        const btn = document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.className='secondary'; btn.style.padding='4px 8px';
+        btn.addEventListener('click', ()=>{ wateringTimes.splice(idx,1); renderTimes(); debouncedSave(); });
+        li.appendChild(span); li.appendChild(btn); ul.appendChild(li);
+      });
+    }
+
+    // Pastaba: pagrindinis loadConfig() aprašytas aukščiau. Čia papildyti jo logiką – neperrašyti.
+
+    document.getElementById('addTimeBtn').addEventListener('click', ()=>{
+      const t = (document.getElementById('newTimeInput').value||'').trim();
+      if(!isValidHHMM(t)){ setMessage(null, 'Blogas laiko formatas. Naudokite HH:MM', false); return; }
+      if(wateringTimes.includes(t)){ setMessage(null, 'Toks laikas jau yra.', false); return; }
+      if(wateringTimes.length>=8){ setMessage(null, 'Pasiektas maksimalus laikų skaičius (8).', false); return; }
+      wateringTimes.push(t);
+      // Rūšiuoti pagal laiką
+      wateringTimes.sort();
+      renderTimes();
+      debouncedSave();
+    });
+
+    // Papildomi nustatymai: API token valdymas (paprasta forma per prompt)
+    (function addTokenControls(){
+      const card = document.createElement('div'); card.className='card';
+      const h2 = document.createElement('h2'); h2.textContent='API prieiga'; card.appendChild(h2);
+      const row = document.createElement('div'); row.className='row';
+      const col = document.createElement('div'); col.className='col';
+      const lab = document.createElement('label'); lab.textContent='X-API-Token (saugomas tik naršyklėje)';
+      const inp = document.createElement('input'); inp.type='text'; inp.placeholder='PALIKITE TUŠČIAI jei nenaudojate'; inp.value = localStorage.getItem('apiToken')||'';
+      col.appendChild(lab); col.appendChild(inp); row.appendChild(col); card.appendChild(row);
+      const actions = document.createElement('div'); actions.className='actions';
+      const btnSave = document.createElement('button'); btnSave.textContent='💾 Įrašyti naršyklėje'; btnSave.type='button';
+      btnSave.addEventListener('click', ()=>{ localStorage.setItem('apiToken', inp.value.trim()); setMessage(null, 'API token įrašytas naršyklėje.', true); });
+      const btnPush = document.createElement('button'); btnPush.textContent='⇪ Įrašyti į įrenginį'; btnPush.type='button'; btnPush.className='secondary';
+      btnPush.addEventListener('click', async ()=>{
+        try{
+          const token = inp.value.trim();
+          const headers = Object.assign({ 'Content-Type':'application/json' }, buildAuthHeaders());
+          const res = await fetch('/config', { method:'POST', headers, body: JSON.stringify({ apiToken: token }) });
+          const txt = await res.text();
+          if(!res.ok) throw new Error(txt||('HTTP '+res.status));
+          // Po sėkmės – atnaujinti naršyklės tokeną
+          localStorage.setItem('apiToken', token);
+          setMessage(null, 'API token įrašytas į įrenginį.', true);
+        }catch(e){ setMessage(null, 'Nepavyko įrašyti į įrenginį: '+e.message, false); }
+      });
+      actions.appendChild(btnSave); actions.appendChild(btnPush); card.appendChild(actions);
+      document.body.insertBefore(card, document.querySelector('.actions'));
+    })();
+  </script>
+</body>
+</html>

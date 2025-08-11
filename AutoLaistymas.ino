@@ -1,3 +1,7 @@
+// Forward declarations to satisfy Arduino's auto-generated prototypes
+struct Config;
+enum SystemStateEnum : uint8_t;
+
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
@@ -6,6 +10,7 @@
 #include "RTClib.h" // RTC biblioteka
 #include <Adafruit_BME280.h> // BME280 biblioteka
 #include <Adafruit_Sensor.h> // Būtina Adafruit jutiklių bibliotekoms
+#include <Wire.h> // I2C reikalingas RTC/BME
 
 // !!! SVARBU: Pakeiskite WATER_LEVEL_PIN į kontaktą, kurį naudojate vandens lygio jutikliui !!!
 #define WATER_LEVEL_PIN 13 // Pavyzdys, pakeiskite pagal savo schemą
@@ -14,12 +19,14 @@
 
 // Maksimalus debouncing imčių kiekis
 #define MAX_DEBOUNCE_SAMPLES 10
+// Maksimalus suplanuotų laistymo laikų skaičius per dieną
+#define MAX_WATERING_SLOTS 8
 
 // Forward deklaracija, kad būtų galima naudoti setup() anksčiau
 bool parseIsoDateTime(const String &iso, DateTime &out);
 
 // --- Būsenų enum ir konvertavimo funkcijos (perkeltos aukščiau, kad būtų prieinamos visur) ---
-enum SystemStateEnum {
+enum SystemStateEnum : uint8_t {
   STATE_IDLE,
   STATE_WINDOW_OPEN,
   STATE_WATERING,
@@ -43,6 +50,29 @@ static inline String systemStateToString(SystemStateEnum stateEnum) {
     case STATE_ERROR_PAUSED: return "ErrorPaused";
     default: return "Unknown";
   }
+}
+
+// ISO 8601 (YYYY-MM-DDTHH:MM:SS) parseris į RTClib DateTime
+bool parseIsoDateTime(const String &iso, DateTime &out) {
+  if (iso.length() < 19) return false;
+  // Tikimės formato: YYYY-MM-DDTHH:MM:SS
+  int Y = iso.substring(0, 4).toInt();
+  int M = iso.substring(5, 7).toInt();
+  int D = iso.substring(8, 10).toInt();
+  int h = iso.substring(11, 13).toInt();
+  int m = iso.substring(14, 16).toInt();
+  int s = iso.substring(17, 19).toInt();
+  // Minimalus formatinis patikrinimas
+  if (iso.charAt(4) != '-' || iso.charAt(7) != '-' ||
+      (iso.charAt(10) != 'T' && iso.charAt(10) != 't') ||
+      iso.charAt(13) != ':' || iso.charAt(16) != ':') {
+    return false;
+  }
+  if (Y < 2000 || M < 1 || M > 12 || D < 1 || D > 31 || h < 0 || h > 23 || m < 0 || m > 59 || s < 0 || s > 59) {
+    return false;
+  }
+  out = DateTime(Y, M, D, h, m, s);
+  return out.isValid();
 }
 
 // --- Konfigūracijos struktūra ---
@@ -76,10 +106,14 @@ struct Config {
   int toleranceWindowMin;
   int sensorReadIntervalMs;
   int pauseResumeCheckIntervalMs;
+  // Keli dienos laikai HH:MM formatu
+  int wateringTimesCount;
+  String wateringTimes[MAX_WATERING_SLOTS];
   WaterLevelConfig waterLevel;
   BME280Config bme280;
   WifiConfig wifi;
   RelayConfig relay;
+  String apiToken; // API prieigos tokenas; jei tuščias – autentifikacija nevykdoma
 };
 
 Config currentConfig; // Globalus konfigūracijos objektas
@@ -93,12 +127,17 @@ static inline int getEffectiveDebounceSamples() {
 }
 
 // -- Config (de)serializacijos helper'iai --
-static inline void configToJson(JsonDocument &doc, const Config &cfg) {
+static inline void configToJson(JsonDocument &doc, const Config &cfg, bool includeSensitive = false) {
   doc["time"] = cfg.time;
   doc["wateringDurationMin"] = cfg.wateringDurationMin;
   doc["toleranceWindowMin"] = cfg.toleranceWindowMin;
   doc["sensorReadIntervalMs"] = cfg.sensorReadIntervalMs;
   doc["pauseResumeCheckIntervalMs"] = cfg.pauseResumeCheckIntervalMs;
+  // wateringTimes masyvas
+  JsonArray arr = doc.createNestedArray("wateringTimes");
+  for (int i = 0; i < cfg.wateringTimesCount && i < MAX_WATERING_SLOTS; i++) {
+    if (cfg.wateringTimes[i].length() >= 4) arr.add(cfg.wateringTimes[i]);
+  }
 
   JsonObject waterLevelDoc = doc.createNestedObject("waterLevel");
   waterLevelDoc["minState"] = cfg.waterLevel.minState;
@@ -122,6 +161,11 @@ static inline void configToJson(JsonDocument &doc, const Config &cfg) {
 
   JsonObject relayDoc = doc.createNestedObject("relay");
   relayDoc["activeLevel"] = cfg.relay.activeLevel;
+
+  if (includeSensitive) {
+    // Įrašyti jautrius laukus tik į failą, bet ne į GET /config atsakymą
+    doc["apiToken"] = cfg.apiToken;
+  }
 }
 
 static inline bool applyConfigFromJson(const JsonDocument &doc, Config &cfg, bool *outWifiChanged = nullptr) {
@@ -130,6 +174,26 @@ static inline bool applyConfigFromJson(const JsonDocument &doc, Config &cfg, boo
   if (doc.containsKey("wateringDurationMin")) cfg.wateringDurationMin = doc["wateringDurationMin"];
   if (doc.containsKey("toleranceWindowMin")) cfg.toleranceWindowMin = doc["toleranceWindowMin"];
   if (doc.containsKey("sensorReadIntervalMs")) cfg.sensorReadIntervalMs = doc["sensorReadIntervalMs"];
+  // wateringTimes
+  if (doc.containsKey("wateringTimes") && doc["wateringTimes"].is<JsonArrayConst>()) {
+    JsonArrayConst a = doc["wateringTimes"].as<JsonArrayConst>();
+    int count = 0;
+    for (JsonVariantConst v : a) {
+      if (!v.is<const char*>()) continue;
+      String s = v.as<const char*>();
+      // Minimalus formatas HH:MM
+      if (s.length() == 5 && s.charAt(2) == ':') {
+        int h = s.substring(0,2).toInt();
+        int m = s.substring(3,5).toInt();
+        if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+          if (count < MAX_WATERING_SLOTS) {
+            cfg.wateringTimes[count++] = s;
+          }
+        }
+      }
+    }
+    cfg.wateringTimesCount = count;
+  }
   if (doc.containsKey("pauseResumeCheckIntervalMs")) cfg.pauseResumeCheckIntervalMs = doc["pauseResumeCheckIntervalMs"];
 
   JsonObjectConst waterLevelDoc = doc["waterLevel"].as<JsonObjectConst>();
@@ -160,13 +224,17 @@ static inline bool applyConfigFromJson(const JsonDocument &doc, Config &cfg, boo
       cfg.wifi.apPassword = wifiDoc["apPassword"].as<String>();
       wifiChanged = true;
     }
-    if (wifiDoc.containsKey("apChannel")) cfg.wifi.apChannel = wifiDoc["apChannel"];
-    if (wifiDoc.containsKey("apHidden")) cfg.wifi.apHidden = wifiDoc["apHidden"];
+    if (wifiDoc.containsKey("apChannel")) { int v = wifiDoc["apChannel"]; if (cfg.wifi.apChannel != v) { cfg.wifi.apChannel = v; wifiChanged = true; } }
+    if (wifiDoc.containsKey("apHidden")) { bool v = wifiDoc["apHidden"]; if (cfg.wifi.apHidden != v) { cfg.wifi.apHidden = v; wifiChanged = true; } }
   }
 
   JsonObjectConst relayDoc = doc["relay"].as<JsonObjectConst>();
   if (!relayDoc.isNull()) {
     if (relayDoc.containsKey("activeLevel")) cfg.relay.activeLevel = relayDoc["activeLevel"].as<String>();
+  }
+
+  if (doc.containsKey("apiToken")) {
+    cfg.apiToken = doc["apiToken"].as<String>();
   }
 
   if (outWifiChanged) *outWifiChanged = wifiChanged;
@@ -183,7 +251,9 @@ String systemState = systemStateToString(currentState); // String būsena, sinch
 unsigned int remainingWateringTimeSec = 0; // Likęs laistymo laikas sekundėmis
 DateTime currentDateTime; // Globalus laiko objektas
 DateTime windowEndsAt;    // Kada baigiasi dabartinis laistymo langas
-int lastWateringYMD = -1; // YYYYMMDD, kad nevykdyti daugiau nei kartą per dieną
+// Daugybiniams laikams: kiekvienam slot'ui atskiras žymeklis, kad nevykdyti daugiau nei kartą per dieną
+int lastWateringYMDForSlot[MAX_WATERING_SLOTS]; // YYYYMMDD
+int activeSlotIndex = -1; // kuris slot'as šiuo metu aktyvus WINDOW_OPEN/WATERING metu
 
 // Relės būsena ir pagalbinės funkcijos
 bool relayActiveLow = true; // nustatoma setup() pagal config
@@ -215,6 +285,10 @@ void loadDefaultConfig() {
   currentConfig.toleranceWindowMin = 120;
   currentConfig.sensorReadIntervalMs = 1000;
   currentConfig.pauseResumeCheckIntervalMs = 1000;
+  // Numatyti du laistymo laikai per dieną
+  currentConfig.wateringTimesCount = 2;
+  currentConfig.wateringTimes[0] = "06:00";
+  currentConfig.wateringTimes[1] = "20:00";
 
   currentConfig.waterLevel.minState = "HIGH";
   currentConfig.waterLevel.debounceSamples = 5;
@@ -234,8 +308,24 @@ void loadDefaultConfig() {
   currentConfig.wifi.apHidden = false;
   // Relė pagal nutylėjimą aktyvi LOW (dauguma modulių); pinas – #define RELAY_PIN
   currentConfig.relay.activeLevel = "LOW";
+  currentConfig.apiToken = ""; // pagal nutylėjimą autentifikacija išjungta
   
   Serial.println("Loaded default configuration.");
+}
+
+// Konfigūracijos validacija ir ribojimai
+static inline void validateAndClampConfig(Config &cfg) {
+  if (cfg.wateringDurationMin < 1) cfg.wateringDurationMin = 1;
+  if (cfg.toleranceWindowMin < 1) cfg.toleranceWindowMin = 1;
+  if (cfg.sensorReadIntervalMs < 100) cfg.sensorReadIntervalMs = 100;
+  if (cfg.pauseResumeCheckIntervalMs < 200) cfg.pauseResumeCheckIntervalMs = 200;
+  if (cfg.wateringTimesCount < 0) cfg.wateringTimesCount = 0;
+  if (cfg.wateringTimesCount > MAX_WATERING_SLOTS) cfg.wateringTimesCount = MAX_WATERING_SLOTS;
+  if (!(cfg.relay.activeLevel == "LOW" || cfg.relay.activeLevel == "HIGH")) cfg.relay.activeLevel = "LOW";
+  if (cfg.waterLevel.debounceSamples < 1) cfg.waterLevel.debounceSamples = 1;
+  if (cfg.waterLevel.debounceSamples > MAX_DEBOUNCE_SAMPLES) cfg.waterLevel.debounceSamples = MAX_DEBOUNCE_SAMPLES;
+  if (cfg.waterLevel.debounceIntervalMs < 1) cfg.waterLevel.debounceIntervalMs = 1;
+  if (cfg.waterLevel.debounceIntervalMs > 1000) cfg.waterLevel.debounceIntervalMs = 1000;
 }
 
 // --- Failų sistemos ir konfigūracijos funkcijos ---
@@ -249,7 +339,7 @@ bool loadConfigurationFromFile() {
     Serial.println("Could not open config.json for reading.");
     return false;
   }
-  StaticJsonDocument<1024> doc;
+  StaticJsonDocument<2048> doc;
   DeserializationError error = deserializeJson(doc, configFile);
   configFile.close();
   if (error) {
@@ -258,28 +348,38 @@ bool loadConfigurationFromFile() {
     return false;
   }
   applyConfigFromJson(doc, currentConfig, nullptr);
+  validateAndClampConfig(currentConfig);
   Serial.println("Configuration successfully loaded from /config.json.");
   return true;
 }
 
 void saveConfigurationToFile() {
-  Serial.println("Saving configuration to /config.json...");
-  if (LittleFS.exists("/config.json")) {
-    LittleFS.remove("/config.json");
-  }
-  File configFile = LittleFS.open("/config.json", "w");
-  if (!configFile) {
-    Serial.println("Failed to create config.json for writing.");
+  Serial.println("Saving configuration to /config.json (atomic)...");
+  const char *tmpPath = "/config.json.tmp";
+  const char *dstPath = "/config.json";
+  // Rašyti į laikiną failą
+  File tmp = LittleFS.open(tmpPath, "w");
+  if (!tmp) {
+    Serial.println("Failed to create temp config file for writing.");
     return;
   }
-  StaticJsonDocument<1024> doc;
-  configToJson(doc, currentConfig);
-  if (serializeJson(doc, configFile) == 0) {
-    Serial.println(F("Failed to write to config.json"));
+  StaticJsonDocument<2048> doc;
+  configToJson(doc, currentConfig, true /* includeSensitive */);
+  if (serializeJson(doc, tmp) == 0) {
+    Serial.println(F("Failed to write JSON to temp config"));
+    tmp.close();
+    LittleFS.remove(tmpPath);
+    return;
+  }
+  tmp.flush();
+  tmp.close();
+  // Pervadinti atominiu būdu (kiek leidžia FS)
+  if (LittleFS.exists(dstPath)) LittleFS.remove(dstPath);
+  if (!LittleFS.rename(tmpPath, dstPath)) {
+    Serial.println("Failed to rename temp config to /config.json");
   } else {
     Serial.println(F("Configuration successfully saved to /config.json."));
   }
-  configFile.close();
 }
 
 // --- Globalūs objektai ---
@@ -289,6 +389,7 @@ Adafruit_BME280 bme;      // BME280 objektas (I2C)
 
 // Kintamieji jutiklių nuskaitymui ir debouncing
 unsigned long lastSensorReadTime = 0;
+unsigned long lastWaterLevelSampleTime = 0; // atskiras vandens jutiklio mėginių intervalas
 int waterLevelReadings[10]; // Masyvas debouncing'ui, dydis pagal max debounceSamples
 int waterLevelReadingIndex = 0;
 int stableWaterLevelState = -1; // -1 reiškia neapsispręsta, 0 LOW, 1 HIGH
@@ -297,9 +398,6 @@ bool bmeSuccessfullyInitialized = false;
 // --- setup() funkcija ---
 void setup() {
   Serial.begin(115200);
-  while (!Serial) {
-    ; // laukti, kol prisijungs Serial Monitor
-  }
   Serial.println("\nLaistymo sistemos paleidimas...");
 
   // 1. Inicializuoti LittleFS
@@ -335,6 +433,8 @@ void setup() {
   Serial.println(IP);
 
   // 4. Inicializuoti RTC
+  // ESP32: prieš rtc.begin() būtina paleisti I2C
+  Wire.begin();
   if (!rtc.begin()) {
     Serial.println("Nepavyko rasti RTC modulio! Patikrinkite pajungimą.");
     // Galima bandyti veikti be RTC, bet laiko funkcijos neveiks.
@@ -350,10 +450,16 @@ void setup() {
       if (parseIsoDateTime(currentConfig.time, cfgTime)) {
         rtc.adjust(cfgTime);
         Serial.println("RTC sureguliuotas pagal config.time");
+        // Iškart atnaujinti currentDateTime, kad /status rodytų naują laiką
+        currentDateTime = cfgTime;
       }
     }
     Serial.println("RTC modulis rastas.");
-    // TODO: Nustatyti laiką iš currentConfig.time
+    // Pradinė sinchronizacija su RTC
+    DateTime now = rtc.now();
+    if (now.isValid()) {
+      currentDateTime = now;
+    }
   }
   
   // 5. Inicializuoti BME280
@@ -384,23 +490,19 @@ void setup() {
     pinMode(WATER_LEVEL_PIN, INPUT);
     Serial.println("Water level sensor PIN " + String(WATER_LEVEL_PIN) + " initialized as INPUT (no pull resistor defined in config).");
   }
-  // Užpildyti pradinius debouncing masyvo įrašus
-  for (int i = 0; i < currentConfig.waterLevel.debounceSamples; i++) {
+  // Užpildyti pradinius debouncing masyvo įrašus (apribojus imčių skaičių)
+  validateAndClampConfig(currentConfig);
+  int initSamples = getEffectiveDebounceSamples();
+  for (int i = 0; i < initSamples; i++) {
     waterLevelReadings[i] = digitalRead(WATER_LEVEL_PIN);
   }
-  stableWaterLevelState = digitalRead(WATER_LEVEL_PIN);
-  currentWaterLevelState = (stableWaterLevelState == (currentConfig.waterLevel.minState == "HIGH" ? HIGH : LOW)) ? "MIN" : "OK"; // Arba "MAX", "ABOVE_MIN" ir pan.
+  waterLevelReadingIndex = 0;
+  stableWaterLevelState = waterLevelReadings[0];
+  // "NERA" – kai pasiektas minimalus lygis (vandens nėra); "YRA" – kai vanduo pakankamas
+  currentWaterLevelState = (stableWaterLevelState == (currentConfig.waterLevel.minState == "HIGH" ? HIGH : LOW)) ? "NERA" : "YRA";
   Serial.print("Water level changed to: "); Serial.println(currentWaterLevelState);
 
-  // Apsauga: apriboti debounceSamples į leistinį intervalą
-  if (currentConfig.waterLevel.debounceSamples < 1) {
-    Serial.println("debounceSamples < 1 -> nustatoma į 1");
-    currentConfig.waterLevel.debounceSamples = 1;
-  }
-  if (currentConfig.waterLevel.debounceSamples > MAX_DEBOUNCE_SAMPLES) {
-    Serial.println("debounceSamples viršijo MAX -> apkarpoma iki MAX");
-    currentConfig.waterLevel.debounceSamples = MAX_DEBOUNCE_SAMPLES;
-  }
+  // Apsaugos jau pritaikytos per validateAndClampConfig
 
   // Inicializuoti relę
   // Jei config.relay.activeLevel neapibrėžtas, laikome LOW kaip saugią numatytąją
@@ -412,17 +514,14 @@ void setup() {
   turnRelayOff(); // Saugiai išjungta paleidimo metu
   relayIsOn = false;
 
-  // 6. Web serverio maršrutai (pradinis pavyzdys)
+  // 6. Web serverio maršrutai (su autentifikacija POST metodams)
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    String html = "<html><head><title>Laistymo Sistema</title><meta charset=\"UTF-8\"></head><body>"; // Pridėta meta žymė
-    html += "<h1>Laistymo Sistema veikia!</h1>";
-    html += "<p>SSID: " + currentConfig.wifi.apSsid + "</p>";
-    html += "<p>AP IP: " + WiFi.softAPIP().toString() + "</p>";
-    html += "<p><a href='/status'>Būsena</a></p>";
-    html += "<p><a href='/config'>Konfigūracija (JSON)</a></p>";
-    html += "<p><a href='/ui/index.html'>Vartotojo Sąsaja (jei įkelta)</a></p>";
-    html += "</body></html>";
-    request->send(200, "text/html", html);
+    // Rodyti tik UI failą iš LittleFS; jokių inline HTML
+    if (LittleFS.exists("/ui/index.html")) {
+      request->send(LittleFS, "/ui/index.html", "text/html");
+    } else {
+      request->send(404, "text/plain", "UI file /ui/index.html not found in LittleFS");
+    }
   });
   
   // GET /status endpoint'as
@@ -441,6 +540,55 @@ void setup() {
             currentDateTime.hour(), currentDateTime.minute(), currentDateTime.second());
     doc["currentTime"] = isoTime;
 
+    // Papildomai: iki kito suplanuoto starto (sekundėmis)
+    long nextStartInSec = -1;
+    if (currentDateTime.isValid() && currentConfig.wateringTimesCount > 0) {
+      // Raskime artimiausią šiandien >= dabar, kitu atveju rytojaus pirmą
+      DateTime best;
+      bool foundToday = false;
+      for (int i = 0; i < currentConfig.wateringTimesCount; i++) {
+        String s = currentConfig.wateringTimes[i];
+        if (s.length() != 5 || s.charAt(2) != ':') continue;
+        int th = s.substring(0,2).toInt();
+        int tm = s.substring(3,5).toInt();
+        DateTime cand(currentDateTime.year(), currentDateTime.month(), currentDateTime.day(), th, tm, 0);
+        if (cand >= currentDateTime) {
+          if (!foundToday || cand < best) { best = cand; foundToday = true; }
+        }
+      }
+      if (!foundToday) {
+        // Rytojus, imame mažiausią laiką
+        int minh = 23, minm = 59; bool have = false;
+        for (int i = 0; i < currentConfig.wateringTimesCount; i++) {
+          String s = currentConfig.wateringTimes[i];
+          if (s.length() != 5 || s.charAt(2) != ':') continue;
+          int th = s.substring(0,2).toInt();
+          int tm = s.substring(3,5).toInt();
+          if (!have || th < minh || (th == minh && tm < minm)) { minh = th; minm = tm; have = true; }
+        }
+        if (have) {
+          DateTime tomorrow = currentDateTime + TimeSpan(1,0,0,0);
+          best = DateTime(tomorrow.year(), tomorrow.month(), tomorrow.day(), minh, minm, 0);
+        }
+      }
+      if (best.isValid()) {
+        TimeSpan delta = best - currentDateTime;
+        nextStartInSec = (long)delta.totalseconds();
+        if (nextStartInSec < 0) nextStartInSec = 0; // apsauga
+      }
+    }
+    doc["nextStartInSec"] = nextStartInSec; // -1 jei nerasta
+
+    // Likęs lango laikas (sekundėmis), jei langas atidarytas
+    long windowRemainingSec = 0;
+    if (currentDateTime.isValid() && currentState == STATE_WINDOW_OPEN) {
+      if (currentDateTime < windowEndsAt) {
+        TimeSpan rem = windowEndsAt - currentDateTime;
+        windowRemainingSec = (long)rem.totalseconds();
+      }
+    }
+    doc["windowRemainingSec"] = windowRemainingSec;
+
     String jsonResponse;
     serializeJson(doc, jsonResponse);
     request->send(200, "application/json", jsonResponse);
@@ -448,35 +596,42 @@ void setup() {
 
   // GET /config endpoint'as
   server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request){
-    StaticJsonDocument<1024> doc; // Dydis turi atitikti save/load funkcijų dydį
-    configToJson(doc, currentConfig);
+    StaticJsonDocument<2048> doc; // Dydis turi atitikti save/load funkcijų dydį
+    configToJson(doc, currentConfig, false);
     String jsonResponse;
     serializeJson(doc, jsonResponse);
     request->send(200, "application/json", jsonResponse);
   });
 
   // POST /config endpoint'as konfigūracijos atnaujinimui
-  server.on("/config", HTTP_POST, [](AsyncWebServerRequest *request){},
-    NULL, // Nėra failo įkėlimo handler'io
+  server.on("/config", HTTP_POST,
+    [](AsyncWebServerRequest *request){ /* response bus siunčiamas body handler'yje */ },
+    NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
-      // Ši funkcija kviečiama, kai gaunama POST body dalis
-      // Kadangi tikimės JSON, sujungsime visas dalis į vieną String
-      // Paprastumo dėlei, darome prielaidą, kad visas JSON telpa į atmintį.
-      // Didesniems JSON reikėtų sudėtingesnio apdorojimo.
-      String postBody = "";
-      if(total == 0) { // Jei body tuščias
-        request->send(400, "application/json", "{\"error\":\"Empty request body\"}");
-        return;
+      if (index == 0) {
+        request->_tempObject = new String();
       }
-      for(size_t i=0; i<len; i++){
-        postBody += (char)data[i];
-      }
+      String *body = reinterpret_cast<String*>(request->_tempObject);
+      body->reserve(total);
+      body->concat((const char*)data, len);
 
-      if(index + len == total){ // Gautas visas body
+      if (index + len == total) {
+        // Autentifikacija (jei nustatytas tokenas)
+        if (currentConfig.apiToken.length() > 0) {
+          AsyncWebHeader* h = request->getHeader("X-API-Token");
+          if (!h || h->value() != currentConfig.apiToken) {
+            delete body; request->_tempObject = nullptr;
+            request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+            return;
+          }
+        }
+        String postBody = *body;
+        delete body;
+        request->_tempObject = nullptr;
+
         Serial.println("Received POST /config body: " + postBody);
-        StaticJsonDocument<1024> doc; // Dydis turi atitikti load/save funkcijų dydį
+        StaticJsonDocument<2048> doc; // Dydis turi atitikti load/save funkcijų dydį
         DeserializationError error = deserializeJson(doc, postBody);
-
         if (error) {
           Serial.print(F("deserializeJson() failed for POST /config: "));
           Serial.println(error.f_str());
@@ -485,38 +640,70 @@ void setup() {
         }
 
         bool wifiChanged = false;
+        int prevDebounceSamples = currentConfig.waterLevel.debounceSamples;
+        int prevDebounceInterval = currentConfig.waterLevel.debounceIntervalMs;
+        String prevTime = currentConfig.time;
         applyConfigFromJson(doc, currentConfig, &wifiChanged);
+        validateAndClampConfig(currentConfig);
+        bool timeChanged = (currentConfig.time != prevTime);
         if (wifiChanged) {
           Serial.println("Wi-Fi settings changed. Restart required to apply new SSID/password.");
-          // TODO: Galima pridėti vėliavą ar mechanizmą, kuris UI praneštų apie būtiną perkrovimą.
         }
 
-        saveConfigurationToFile(); // Išsaugome atnaujintą konfigūraciją
+        if (timeChanged) {
+          DateTime newTime;
+          if (parseIsoDateTime(currentConfig.time, newTime)) {
+            rtc.adjust(newTime);
+            currentDateTime = newTime;
+            Serial.println("RTC time set from POST /config time field.");
+          } else {
+            Serial.println("Gautas 'time' laukas neatitinka formato, RTC nebuvo atnaujintas.");
+          }
+        }
+
+        saveConfigurationToFile();
+
+        // Jei pasikeitė debounce parametrai – reinicializuoti mėginių buferį
+        if (currentConfig.waterLevel.debounceSamples != prevDebounceSamples || currentConfig.waterLevel.debounceIntervalMs != prevDebounceInterval) {
+          int eff = getEffectiveDebounceSamples();
+          for (int i = 0; i < eff; i++) waterLevelReadings[i] = digitalRead(WATER_LEVEL_PIN);
+          waterLevelReadingIndex = 0;
+          stableWaterLevelState = waterLevelReadings[0];
+          currentWaterLevelState = (stableWaterLevelState == (currentConfig.waterLevel.minState == "HIGH" ? HIGH : LOW)) ? "NERA" : "YRA";
+          lastWaterLevelSampleTime = millis();
+        }
         request->send(200, "application/json", "{\"success\":\"Configuration updated\"}");
-        
-        // Jei buvo pakeisti WiFi nustatymai, galbūt reikėtų iškart perkrauti ESP?
-        // Pvz.: if (wifiChanged) { ESP.restart(); }
-        // Bet tai nutrauktų ryšį staiga. Geriau leisti vartotojui tai padaryti.
       }
     }
   );
 
   // POST /config/time endpoint'as RTC laiko nustatymui
-  server.on("/config/time", HTTP_POST, [](AsyncWebServerRequest *request){},
-    NULL, // Nėra failo įkėlimo handler'io
+  server.on("/config/time", HTTP_POST,
+    [](AsyncWebServerRequest *request){ /* response bus siunčiamas body handler'yje */ },
+    NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
-      String postBody = "";
-      if(total == 0) {
-        request->send(400, "application/json", "{\"error\":\"Empty request body\"}");
-        return;
+      if (index == 0) {
+        request->_tempObject = new String();
       }
-      for(size_t i=0; i<len; i++){
-        postBody += (char)data[i];
-      }
+      String *body = reinterpret_cast<String*>(request->_tempObject);
+      body->reserve(total);
+      body->concat((const char*)data, len);
 
-      if(index + len == total){ // Gautas visas body
+      if (index + len == total) {
+        if (currentConfig.apiToken.length() > 0) {
+          AsyncWebHeader* h = request->getHeader("X-API-Token");
+          if (!h || h->value() != currentConfig.apiToken) {
+            delete body; request->_tempObject = nullptr;
+            request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+            return;
+          }
+        }
+        String postBody = *body;
+        delete body;
+        request->_tempObject = nullptr;
+
         Serial.println("Received POST /config/time body: " + postBody);
-        StaticJsonDocument<128> doc; // Pakankamai mažas JSON, tik laikas
+        StaticJsonDocument<256> doc; // Pakanka laukui 'time'
         DeserializationError error = deserializeJson(doc, postBody);
 
         if (error || !doc.containsKey("time") || !doc["time"].is<const char*>()) {
@@ -534,8 +721,8 @@ void setup() {
         }
 
         rtc.adjust(newTime);
-        currentConfig.time = timeStr; // Atnaujiname konfigūracijos lauką
-        saveConfigurationToFile(); // Išsaugome pakeitimus
+        currentConfig.time = timeStr;
+        saveConfigurationToFile();
 
         Serial.println("RTC time set to: " + timeStr);
         request->send(200, "application/json", "{\"success\":\"Time updated\", \"newTime\":\"" + timeStr + "\"}");
@@ -543,8 +730,12 @@ void setup() {
     }
   );
 
-  // GET /start endpoint'as - rankinis laistymo paleidimas
-  server.on("/start", HTTP_GET, [](AsyncWebServerRequest *request){
+  // POST /start endpoint'as - rankinis laistymo paleidimas
+  server.on("/start", HTTP_POST, [](AsyncWebServerRequest *request){
+    if (currentConfig.apiToken.length() > 0) {
+      AsyncWebHeader* h = request->getHeader("X-API-Token");
+      if (!h || h->value() != currentConfig.apiToken) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+    }
     if (currentState == STATE_WATERING) {
       request->send(409, "application/json", "{\"error\":\"Watering already in progress\"}");
       return;
@@ -567,12 +758,26 @@ void setup() {
     request->send(200, "application/json", jsonResponse);
   });
 
-  // GET /stop endpoint'as - rankinis laistymo sustabdymas
-  server.on("/stop", HTTP_GET, [](AsyncWebServerRequest *request){
+  // POST /stop endpoint'as - rankinis laistymo sustabdymas
+  server.on("/stop", HTTP_POST, [](AsyncWebServerRequest *request){
+    if (currentConfig.apiToken.length() > 0) {
+      AsyncWebHeader* h = request->getHeader("X-API-Token");
+      if (!h || h->value() != currentConfig.apiToken) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+    }
     if (currentState != STATE_WATERING) {
       request->send(409, "application/json", "{\"error\":\"No watering cycle in progress to stop\"}");
       return;
     }
+  // POST /restart endpoint'as - prietaiso perkrovimas
+  server.on("/restart", HTTP_POST, [](AsyncWebServerRequest *request){
+    if (currentConfig.apiToken.length() > 0) {
+      AsyncWebHeader* h = request->getHeader("X-API-Token");
+      if (!h || h->value() != currentConfig.apiToken) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+    }
+    request->send(200, "application/json", "{\"success\":\"Restarting\"}");
+    delay(100);
+    ESP.restart();
+  });
 
     setState(STATE_IDLE); // Arba kita tinkama būsena, pvz., "WindowOpen", jei tai labiau tinka po rankinio sustabdymo
     remainingWateringTimeSec = 0;
@@ -609,8 +814,8 @@ void loop() {
     // Serial.print("Current RTC Time: "); Serial.println(currentDateTime.timestamp(DateTime::TIMESTAMP_ISO8601));
   }
 
-  // Periodiškai nuskaityti jutiklius
-  if (millis() - lastSensorReadTime >= currentConfig.sensorReadIntervalMs) {
+  // Periodiškai nuskaityti aplinkos jutiklius (BME)
+  if (millis() - lastSensorReadTime >= (unsigned long)currentConfig.sensorReadIntervalMs) {
     lastSensorReadTime = millis();
 
     // Nuskaityti BME280 duomenis
@@ -628,68 +833,63 @@ void loop() {
       currentHumidity = -999.0;
       currentPressure = -999.0;
     }
+  }
 
-    // Nuskaityti vandens lygio jutiklį su debouncing
-    // Įrašome naują reikšmę į masyvą
-    // Efektyvus imčių skaičius pagal helper'į (apsauga nuo neteisingų reikšmių)
+  // Vandens lygio jutiklio mėginių ėmimas pagal debounceIntervalMs
+  if (millis() - lastWaterLevelSampleTime >= (unsigned long)currentConfig.waterLevel.debounceIntervalMs) {
+    lastWaterLevelSampleTime = millis();
     int effectiveSamples = getEffectiveDebounceSamples();
     waterLevelReadings[waterLevelReadingIndex] = digitalRead(WATER_LEVEL_PIN);
     waterLevelReadingIndex = (waterLevelReadingIndex + 1) % effectiveSamples;
 
-    // Tikriname, ar visos reikšmės masyve vienodos (stabilus signalas)
     bool allSame = true;
-    for (int i = 0; i < effectiveSamples -1; i++) {
-      if (waterLevelReadings[i] != waterLevelReadings[i+1]) {
-        allSame = false;
-        break;
-      }
+    for (int i = 0; i < effectiveSamples - 1; i++) {
+      if (waterLevelReadings[i] != waterLevelReadings[i+1]) { allSame = false; break; }
     }
-
     if (allSame) {
-      if (stableWaterLevelState != waterLevelReadings[0]) { // Būsena pasikeitė
+      if (stableWaterLevelState != waterLevelReadings[0]) {
         stableWaterLevelState = waterLevelReadings[0];
-        // Atnaujiname currentWaterLevelState pagal tai, ar pasiektas minState
-        // Tarkime, jei minState yra "HIGH", tai HIGH yra minimalus lygis, o LOW yra "aukščiau minimalaus"
-        // Jei minState yra "LOW", tai LOW yra minimalus lygis, o HIGH yra "aukščiau minimalaus"
-        bool isMinLevel = (currentConfig.waterLevel.minState == "HIGH" && stableWaterLevelState == HIGH) || 
+        bool isMinLevel = (currentConfig.waterLevel.minState == "HIGH" && stableWaterLevelState == HIGH) ||
                           (currentConfig.waterLevel.minState == "LOW" && stableWaterLevelState == LOW);
-        currentWaterLevelState = isMinLevel ? "MIN" : "OK"; // Arba "MAX", "ABOVE_MIN" ir pan.
+        currentWaterLevelState = isMinLevel ? "NERA" : "YRA";
         Serial.print("Water level changed to: "); Serial.println(currentWaterLevelState);
       }
-    } 
-    // Jei ne allSame, būsena nestabili, currentWaterLevelState nekeičiamas, lieka paskutinė stabili
-
-    // TODO: Ateityje čia bus laistymo logika pagal RTC ir jutiklius
+    }
   }
 
   // Būsenų automato (state machine) logika
   switch (currentState) {
     case STATE_IDLE: {
-      // Išparsuoti valandas, minutes, sekundes iš currentConfig.time
-      // Formatas: YYYY-MM-DDTHH:MM:SS
-      int targetHour = 0, targetMinute = 0, targetSecond = 0;
-      if (currentConfig.time.length() == 19) { // Tikriname ilgį
-        targetHour = currentConfig.time.substring(11, 13).toInt();
-        targetMinute = currentConfig.time.substring(14, 16).toInt();
-        targetSecond = currentConfig.time.substring(17, 19).toInt();
-      }
-
+      // Patikrinti, ar atėjo kuris nors suplanuotas laikas HH:MM
       if (currentDateTime.isValid()) {
         int todayYMD = currentDateTime.year()*10000 + currentDateTime.month()*100 + currentDateTime.day();
-        bool timeReached = (currentDateTime.hour() > targetHour) ||
-                           (currentDateTime.hour() == targetHour && currentDateTime.minute() > targetMinute) ||
-                           (currentDateTime.hour() == targetHour && currentDateTime.minute() == targetMinute && currentDateTime.second() >= targetSecond);
-        if (timeReached && lastWateringYMD != todayYMD) {
-
-          setState(STATE_WINDOW_OPEN);
-          windowEndsAt = currentDateTime + TimeSpan(0, 0, currentConfig.toleranceWindowMin, 0); // Dienos, valandos, minutės, sekundės
-          Serial.print("State changed to: WindowOpen. Window ends at: ");
-          {
+        // Inicializuoti per pirmą kartą (jeigu dar ne)
+        static bool slotsInited = false;
+        if (!slotsInited) {
+          for (int i = 0; i < MAX_WATERING_SLOTS; i++) lastWateringYMDForSlot[i] = -1;
+          slotsInited = true;
+        }
+        for (int i = 0; i < currentConfig.wateringTimesCount; i++) {
+          String s = currentConfig.wateringTimes[i];
+          if (s.length() != 5 || s.charAt(2) != ':') continue;
+          int targetHour = s.substring(0, 2).toInt();
+          int targetMinute = s.substring(3, 5).toInt();
+          // Suformuoti šiandienos suplanuotą laiką HH:MM:00
+          DateTime scheduled(currentDateTime.year(), currentDateTime.month(), currentDateTime.day(), targetHour, targetMinute, 0);
+          TimeSpan tol(0, 0, currentConfig.toleranceWindowMin, 0);
+          bool inWindow = (currentDateTime >= scheduled) && (currentDateTime < (scheduled + tol));
+      if (inWindow && lastWateringYMDForSlot[i] != todayYMD) {
+            setState(STATE_WINDOW_OPEN);
+            activeSlotIndex = i;
+            windowEndsAt = scheduled + tol; // lango pabaiga pagal suplanuotą laiką
+            Serial.print("State changed to: WindowOpen (slot "); Serial.print(i); Serial.println(")");
+            Serial.print("Window ends at: ");
             char isoTime[20];
             sprintf(isoTime, "%04d-%02d-%02dT%02d:%02d:%02d",
                     windowEndsAt.year(), windowEndsAt.month(), windowEndsAt.day(),
                     windowEndsAt.hour(), windowEndsAt.minute(), windowEndsAt.second());
             Serial.println(isoTime);
+            break; // vienu metu tik vienas langas
           }
         }
       }
@@ -701,6 +901,7 @@ void loop() {
         if (currentDateTime >= windowEndsAt) {
           Serial.println("Watering window closed. No watering initiated or finished.");
           setState(STATE_IDLE);
+          activeSlotIndex = -1;
           break;
         }
       }
@@ -711,6 +912,13 @@ void loop() {
         setState(STATE_WATERING);
         remainingWateringTimeSec = currentConfig.wateringDurationMin * 60;
         Serial.println("Conditions OK. State changed to: Watering");
+        // Pažymėti, kad šiandien šiam slot'ui laistymas pradėtas
+        if (currentDateTime.isValid()) {
+          int todayYMD = currentDateTime.year()*10000 + currentDateTime.month()*100 + currentDateTime.day();
+          if (activeSlotIndex >= 0 && activeSlotIndex < MAX_WATERING_SLOTS) {
+            lastWateringYMDForSlot[activeSlotIndex] = todayYMD;
+          }
+        }
       } else {
         // Sąlygos netinkamos, liekame WindowOpen ir laukiame, gal pagerės, kol langas atviras
         // Arba pereiti į ErrorPaused, jei pvz., vandens lygis per žemas ir tai yra klaida
@@ -743,8 +951,13 @@ void loop() {
         setState(STATE_IDLE); // Arba WindowOpen, jei langas dar nesibaigė?
         // Pažymime, kad šiandien jau buvo laistyta
         if (currentDateTime.isValid()) {
-          lastWateringYMD = currentDateTime.year()*10000 + currentDateTime.month()*100 + currentDateTime.day();
+          int todayYMD = currentDateTime.year()*10000 + currentDateTime.month()*100 + currentDateTime.day();
+          if (activeSlotIndex >= 0 && activeSlotIndex < MAX_WATERING_SLOTS) {
+            lastWateringYMDForSlot[activeSlotIndex] = todayYMD;
+          }
         }
+        // Nebelieka aktyvaus lango/slot'o po užbaigimo
+        activeSlotIndex = -1;
       }
       break;
     }
@@ -754,8 +967,15 @@ void loop() {
       if (millis() - lastErrorCheck >= (unsigned long)currentConfig.pauseResumeCheckIntervalMs) {
         lastErrorCheck = millis();
         if (checkWateringConditions()) {
-          Serial.println("Error conditions cleared. Returning to Idle.");
-          setState(STATE_IDLE);
+          // Jei langas dar atviras – tęsiame; kitaip grįžtame į Idle
+          if (currentDateTime.isValid() && currentDateTime < windowEndsAt) {
+            Serial.println("Error conditions cleared. Resuming watering.");
+            setState(STATE_WATERING);
+          } else {
+            Serial.println("Error conditions cleared but window closed. Returning to Idle.");
+            setState(STATE_IDLE);
+            activeSlotIndex = -1;
+          }
         }
       }
       break;
@@ -776,49 +996,49 @@ void loop() {
 
 // Funkcija patikrinti, ar sąlygos tinkamos laistymui
 bool checkWateringConditions() {
-  // 1. Patikrinti vandens lygį
-  // currentWaterLevelState nustatomas į "MIN", jei pasiektas minimalus lygis pagal konfigūraciją.
-  if (currentWaterLevelState == "MIN") {
-    Serial.println("Condition check: FAILED - Water level is at minimum.");
-    return false;
+  // Naudojame statuso kodą ir loguojame tik kai pasikeičia
+  // 0=unknown, 1=OK, 2=FAIL_MIN_LEVEL, 3=FAIL_TEMP, 4=FAIL_HUM, 5=FAIL_PRES, 6=FAIL_BME_NOT_INIT_LIMITS, 7=SKIP_BME
+  static int lastStatus = 0;
+  int status = 0;
+  bool ok = true;
+
+  // 1. Vandens lygis
+  if (currentWaterLevelState == "NERA") {
+    status = 2; ok = false; // minimumas pasiektas
   }
 
-  // 2. Patikrinti BME280 duomenis (jei jutiklis veikia)
-  if (bmeSuccessfullyInitialized) {
+  // 2. BME280 (jei jutiklis veikia ir kol kas OK)
+  if (ok && bmeSuccessfullyInitialized) {
     if (currentTemperature < currentConfig.bme280.tempMin || currentTemperature > currentConfig.bme280.tempMax) {
-      Serial.print("Condition check: FAILED - Temperature out of bounds (");
-      Serial.print(currentTemperature); Serial.print(" *C, bounds: ");
-      Serial.print(currentConfig.bme280.tempMin); Serial.print("-"); Serial.print(currentConfig.bme280.tempMax); Serial.println(" *C)");
-      return false;
+      status = 3; ok = false;
+    } else if (currentHumidity < currentConfig.bme280.humMin || currentHumidity > currentConfig.bme280.humMax) {
+      status = 4; ok = false;
+    } else if (currentPressure < currentConfig.bme280.presMin || currentPressure > currentConfig.bme280.presMax) {
+      status = 5; ok = false;
+    } else {
+      status = 1; // OK pagal BME ir vandens lygį
     }
-    if (currentHumidity < currentConfig.bme280.humMin || currentHumidity > currentConfig.bme280.humMax) {
-      Serial.print("Condition check: FAILED - Humidity out of bounds (");
-      Serial.print(currentHumidity); Serial.print(" %, bounds: ");
-      Serial.print(currentConfig.bme280.humMin); Serial.print("-"); Serial.print(currentConfig.bme280.humMax); Serial.println(" %)");
-      return false;
-    }
-    if (currentPressure < currentConfig.bme280.presMin || currentPressure > currentConfig.bme280.presMax) {
-      Serial.print("Condition check: FAILED - Pressure out of bounds (");
-      Serial.print(currentPressure); Serial.print(" hPa, bounds: ");
-      Serial.print(currentConfig.bme280.presMin); Serial.print("-"); Serial.print(currentConfig.bme280.presMax); Serial.println(" hPa)");
-      return false;
-    }
-  } else {
-    // Jei BME280 neveikia, o konfigūracijoje yra nustatytos ribos, laikome, kad sąlygos netinkamos.
-    // Ateityje galima pridėti konfigūracijos parinktį ignoruoti BME klaidas.
-    // Tikriname, ar bent viena BME riba yra nustatyta (ne numatytoji 0.0, kas gali reikšti 'nesvarbu')
-    // Šis patikrinimas yra grubus, geriau būtų turėti aiškią vėliavėlę 'enforceBmeLimits'
+  } else if (ok && !bmeSuccessfullyInitialized) {
     bool bmeLimitsSet = (currentConfig.bme280.tempMin != 0.0 || currentConfig.bme280.tempMax != 0.0 ||
                          currentConfig.bme280.humMin != 0.0 || currentConfig.bme280.humMax != 0.0 ||
                          currentConfig.bme280.presMin != 0.0 || currentConfig.bme280.presMax != 0.0);
-    if (bmeLimitsSet) {
-        Serial.println("Condition check: FAILED - BME280 sensor not initialized, but limits are set in config.");
-        return false;
-    }
-    // Jei BME neveikia ir ribos nenustatytos (arba nuspręsta ignoruoti), tęsiame tik su vandens lygiu
-    Serial.println("Condition check: SKIPPED BME280 - Sensor not initialized and/or no limits set.");
+    if (bmeLimitsSet) { status = 6; ok = false; } else { status = 7; ok = true; }
   }
 
-  Serial.println("Condition check: PASSED - All conditions are OK for watering.");
-  return true;
+  // Loguoti tik pasikeitus būsenai
+  if (status != lastStatus) {
+    lastStatus = status;
+    switch (status) {
+      case 1: Serial.println("Condition: OK"); break;
+      case 2: Serial.println("Condition: FAIL (water level MIN)"); break;
+      case 3: Serial.println("Condition: FAIL (temperature)"); break;
+      case 4: Serial.println("Condition: FAIL (humidity)"); break;
+      case 5: Serial.println("Condition: FAIL (pressure)"); break;
+      case 6: Serial.println("Condition: FAIL (BME not initialized, limits set)"); break;
+      case 7: Serial.println("Condition: OK (BME skipped)"); break;
+      default: break;
+    }
+  }
+
+  return ok;
 }

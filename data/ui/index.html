@@ -3,55 +3,174 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AutoLaistymas</title>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <link rel="stylesheet" href="/ui/styles.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-</head>
-<body class="bg-gray-100 text-gray-900">
-  <div class="container mx-auto p-4 max-w-4xl">
-    <header class="mb-4">
-      <h1 class="text-2xl font-bold flex items-center gap-2"><i class="fa-solid fa-seedling"></i> AutoLaistymas</h1>
-      <p class="text-sm text-gray-600">ESP32 vietinė laistymo sistema</p>
-    </header>
-
-    <section class="bg-white shadow rounded p-4 mb-4">
-      <h2 class="font-semibold mb-2">Būsena</h2>
-      <div id="status" class="grid grid-cols-2 gap-2 text-sm">
-        <div><span class="font-medium">RTC laikas:</span> <span id="s-time">-</span></div>
-        <div><span class="font-medium">RTC validus:</span> <span id="s-rtcValid">-</span></div>
-        <div><span class="font-medium">Temperatūra:</span> <span id="s-temp">-</span></div>
-        <div><span class="font-medium">Drėgmė:</span> <span id="s-hum">-</span></div>
-        <div><span class="font-medium">Slėgis:</span> <span id="s-pres">-</span></div>
-        <div><span class="font-medium">Vandens lygis:</span> <span id="s-water">-</span></div>
-        <div><span class="font-medium">Būsena:</span> <span id="s-state">-</span></div>
-        <div><span class="font-medium">Likęs laikas:</span> <span id="s-remaining">-</span></div>
-      </div>
-      <div class="mt-3 flex gap-2">
-        <button id="btn-start" class="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700"><i class="fa-solid fa-play"></i> Start</button>
-        <button id="btn-stop" class="px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700"><i class="fa-solid fa-stop"></i> Stop</button>
-        <button id="btn-refresh" class="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"><i class="fa-solid fa-rotate"></i> Atnaujinti</button>
-      </div>
-      <div id="status-msg" class="text-sm mt-2"></div>
-    </section>
-
-    <section class="bg-white shadow rounded p-4 mb-4">
-      <h2 class="font-semibold mb-2">Laiko nustatymas</h2>
-      <div class="flex gap-2 items-center">
-        <input id="in-time" type="text" value="2025-01-01T12:00:00" class="border rounded px-2 py-1 w-64" />
-        <button id="btn-set-time" class="px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">Nustatyti RTC</button>
-      </div>
-      <div id="time-msg" class="text-sm mt-2"></div>
-    </section>
-
-    <section class="bg-white shadow rounded p-4">
-      <h2 class="font-semibold mb-2">Konfigūracija (peržiūra)</h2>
-      <pre id="config-json" class="text-xs bg-gray-50 p-2 rounded overflow-auto"></pre>
-    </section>
+  <title>Auto Laistymas</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin:0; padding:16px; background:#f6f7fb; color:#111; padding-bottom:56px; }
+    h1 { margin:0 0 12px; font-size:22px; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px 14px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .kv { display:grid; grid-template-columns: 180px 1fr; gap:6px 12px; }
+    .kv div { padding:2px 0; }
+    .muted { color:#6b7280; font-size:13px; }
+    .msg { margin-top:8px; font-size:13px; min-height:1.6em; line-height:1.3; overflow-wrap:anywhere; }
+    button { padding:8px 12px; border-radius:6px; border:1px solid #2563eb; background:#2563eb; color:white; cursor:pointer; display:inline-flex; align-items:center; gap:8px; }
+    button.danger { border-color:#991b1b; background:#991b1b; }
+    button.secondary { border-color:#6b7280; background:#6b7280; }
+    .header { position:sticky; top:0; background:#f6f7fb; z-index:1000; display:flex; align-items:center; justify-content:space-between; margin:0 0 10px; padding-top:4px; }
+    .header .muted a { color:#2563eb; text-decoration:none; font-size:14px; padding:4px 6px; display:inline-flex; align-items:center; gap:6px; }
+    .header .muted a i { width:16px; text-align:center; }
+    .global { position:fixed; left:0; right:0; bottom:0; padding:8px 12px; font-size:14px; color:#fff; background:#374151; z-index:1000; }
+    .global.ok { background:#065f46; }
+    .global.err { background:#991b1b; }
+    /* Reikšmių spalvos pagal ribas */
+    .val.ok { color:#065f46; }
+    .val.err { color:#991b1b; }
+  </style>
+  <link rel="icon" href="data:,">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  </head>
+<body>
+  <div class="header">
+    <h1>🌿 Auto Laistymas</h1>
+    <div class="muted"><a href="/ui/settings.html">⚙️ Nustatymai</a></div>
   </div>
 
-  <script src="/ui/main.js"></script>
+  <div class="grid">
+    <div class="card">
+      <h2>📊 Būsena</h2>
+      <div class="kv"><div>⏱️ Laistymas prasidės po</div><div id="nextStart">-</div></div>
+      <div class="kv"><div>🪟 Liko laiko langui</div><div id="windowLeft">00:00:00</div></div>
+      <div class="kv"><div>🗂️ Būsena</div><div id="state">-</div></div>
+      <div class="kv"><div>⏳ Likęs laikas</div><div id="remaining">00:00:00</div></div>
+      <div class="kv"><div>🕒 RTC</div><div id="currentTime">-</div></div>
+    </div>
+    <div class="card">
+      <h2>Aplinkos duomenys</h2>
+      <div class="kv"><div>Temperatūra (°C)</div><div id="temp">-</div></div>
+      <div class="kv"><div>Drėgmė (%)</div><div id="hum">-</div></div>
+      <div class="kv"><div>Slėgis (hPa)</div><div id="pres">-</div></div>
+      <div class="kv"><div>Vandens lygis</div><div id="waterLevel">-</div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <div class="row">
+      <button id="startBtn" type="button">▶️ Paleisti laistymą</button>
+      <button id="stopBtn" class="danger" type="button">⏹️ Sustabdyti laistymą</button>
+    </div>
+  </div>
+
+  <div id="globalMsg" class="global"></div>
+
+  <script>
+    function fmtHMS(sec){
+      if(sec == null || isNaN(sec) || sec < 0) return '-';
+      const s = Math.floor(sec);
+      const h = Math.floor(s/3600);
+      const m = Math.floor((s%3600)/60);
+      const ss = s%60;
+      const pad = n=> String(n).padStart(2,'0');
+      return `${pad(h)}:${pad(m)}:${pad(ss)}`;
+    }
+    // Konfigūracijos ribos (užpildoma iš /config)
+    const limits = { tempMin:null, tempMax:null, humMin:null, humMax:null, presMin:null, presMax:null };
+    async function loadLimits(){
+      try{
+        const r = await fetch('/config');
+        if(!r.ok) return;
+        const cfg = await r.json();
+        if(cfg && cfg.bme280){
+          ['tempMin','tempMax','humMin','humMax','presMin','presMax'].forEach(k=>{
+            if (cfg.bme280[k] != null) limits[k] = Number(cfg.bme280[k]);
+          });
+        }
+      }catch(e){ /* tyliai, neblokuojame */ }
+    }
+    function colorizeValue(elId, value, min, max){
+      const el = document.getElementById(elId);
+      el.classList.remove('ok','err','val','global'); // apsauga nuo paveldėtų
+      el.classList.add('val');
+      if (Number.isFinite(value) && Number.isFinite(min) && Number.isFinite(max)){
+        el.classList.add((value >= min && value <= max) ? 'ok' : 'err');
+      }
+    }
+    function setMsg(t){
+      const bar = document.getElementById('globalMsg');
+      bar.textContent = t||'';
+      bar.className = 'global ' + (!t ? '' : (String(t).toLowerCase().includes('klaida')? 'err':'ok'));
+    }
+
+    async function loadStatus(){
+      try{
+        const res = await fetch('/status');
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const s = await res.json();
+        document.getElementById('temp').textContent = (s.temp ?? '-');
+        document.getElementById('hum').textContent = (s.hum ?? '-');
+        document.getElementById('pres').textContent = (s.pres ?? '-');
+        colorizeValue('temp', Number(s.temp), limits.tempMin, limits.tempMax);
+        colorizeValue('hum', Number(s.hum), limits.humMin, limits.humMax);
+        colorizeValue('pres', Number(s.pres), limits.presMin, limits.presMax);
+        document.getElementById('waterLevel').textContent = s.waterLevel || '-';
+        document.getElementById('state').textContent = s.state || '-';
+        document.getElementById('remaining').textContent = fmtHMS(Number(s.remainingTimeSec || 0));
+        document.getElementById('currentTime').textContent = (s.currentTime || '-').replace('T',' ');
+        document.getElementById('nextStart').textContent = fmtHMS(s.nextStartInSec);
+        document.getElementById('windowLeft').textContent = fmtHMS(s.windowRemainingSec);
+        setMsg('Atnaujinta.');
+      }catch(e){ setMsg('Klaida: '+e.message); }
+    }
+
+    // Auto atnaujinimas visada įjungtas; intervalas iš localStorage
+    function getRefreshMs(){
+      const v = parseInt(localStorage.getItem('uiRefreshMs')||'1000', 10);
+      return (Number.isFinite(v) && v >= 250 ? v : 1000);
+    }
+    let timer = null;
+    function startAuto(){
+      if (timer) clearInterval(timer);
+      loadStatus();
+      timer = setInterval(loadStatus, getRefreshMs());
+    }
+    // Reaguoti į nustatymų keitimą kituose languose
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'uiRefreshMs') {
+        startAuto();
+      }
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { if (timer) { clearInterval(timer); timer = null; } }
+      else { startAuto(); }
+    });
+
+    function getApiToken(){ return (localStorage.getItem('apiToken')||'').trim(); }
+    function buildAuthHeaders(){ const h={}; const tok=getApiToken(); if(tok) h['X-API-Token']=tok; return h; }
+    async function start(){
+      setMsg('Siunčiamas START...');
+      try{
+        const r = await fetch('/start', { method:'POST', headers: buildAuthHeaders() });
+        const t = await r.text();
+        if(!r.ok) throw new Error(t||('HTTP '+r.status));
+        setMsg('Paleista. '+t);
+        loadStatus();
+      }catch(e){ setMsg('Nepavyko paleisti: '+e.message); }
+    }
+    async function stop(){
+      setMsg('Siunčiamas STOP...');
+      try{
+        const r = await fetch('/stop', { method:'POST', headers: buildAuthHeaders() });
+        const t = await r.text();
+        if(!r.ok) throw new Error(t||('HTTP '+r.status));
+        setMsg('Sustabdyta. '+t);
+        loadStatus();
+      }catch(e){ setMsg('Nepavyko sustabdyti: '+e.message); }
+    }
+    document.getElementById('startBtn').addEventListener('click', start);
+    document.getElementById('stopBtn').addEventListener('click', stop);
+    // Paleisti automatinį atnaujinimą ir užkrauti ribas
+    loadLimits().finally(startAuto);
+  </script>
 </body>
 </html>

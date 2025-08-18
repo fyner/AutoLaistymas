@@ -2,197 +2,399 @@
 <html lang="lt">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
   <title>Auto Laistymas</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin:0; padding:16px; background:#f6f7fb; color:#111; padding-bottom:56px; }
-    h1 { margin:0 0 12px; font-size:22px; }
-    .card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px 14px; }
-    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
-    .kv { display:grid; grid-template-columns: 180px 1fr; gap:6px 12px; }
-    .kv div { padding:2px 0; }
-    .muted { color:#6b7280; font-size:13px; }
-    .msg { margin-top:8px; font-size:13px; min-height:1.6em; line-height:1.3; overflow-wrap:anywhere; }
-    button { padding:8px 12px; border-radius:6px; border:1px solid #2563eb; background:#2563eb; color:white; cursor:pointer; display:inline-flex; align-items:center; gap:8px; }
-    button.danger { border-color:#991b1b; background:#991b1b; }
-    button.secondary { border-color:#6b7280; background:#6b7280; }
-    .header { position:sticky; top:0; background:#f6f7fb; z-index:1000; display:flex; align-items:center; justify-content:space-between; margin:0 0 10px; padding-top:4px; }
-    .header .muted a { color:#2563eb; text-decoration:none; font-size:14px; padding:4px 6px; display:inline-flex; align-items:center; gap:6px; }
-    .header .muted a i { width:16px; text-align:center; }
-    .global { position:fixed; left:0; right:0; bottom:0; padding:8px 12px; font-size:14px; color:#fff; background:#374151; z-index:1000; }
-    .global.ok { background:#065f46; }
-    .global.err { background:#991b1b; }
-    /* Reikšmių spalvos pagal ribas */
-    .val.ok { color:#065f46; }
-    .val.err { color:#991b1b; }
-  </style>
-  <link rel="icon" href="data:,">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
-  </head>
+  <link rel="stylesheet" href="/ui/styles.css">
+  <script src="/ui/common.js"></script>
+</head>
 <body>
   <div class="header">
-    <h1>🌿 Auto Laistymas</h1>
-    <div class="muted">
-      <span id="authStatus" style="margin-right:12px; font-size:12px;">🔓</span>
-      <a href="/ui/settings.html">⚙️ Nustatymai</a>
+    <div class="header-content">
+      <div class="logo">
+        <h1>🌱 AutoLaistymas</h1>
+      </div>
+      <div class="nav-links">
+        <a href="/ui/settings.html" title="Nustatymai">⚙️</a>
+      </div>
+      <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Keisti stilių">
+        <span id="themeIcon">🌙</span>
+      </button>
+    </div>
+    <div id="globalMsg" class="global hidden"></div>
+  </div>
+
+  <div class="status-grid">
+    <div class="card status-card">
+      <h2>📊 Sistemos būsena</h2>
+      <div class="status-grid-inner">
+        <div class="status-item">
+          <div class="status-icon">⏱️</div>
+          <div class="status-content">
+            <div class="status-label">Laistymas prasidės po</div>
+            <div class="status-value" id="nextStart">-</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-icon">🪟</div>
+          <div class="status-content">
+            <div class="status-label">Liko laiko langui</div>
+            <div class="status-value" id="windowLeft">00:00:00</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-icon">🗂️</div>
+          <div class="status-content">
+            <div class="status-label">Būsena</div>
+            <div class="status-value" id="stateDisplay">-</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-icon">⏳</div>
+          <div class="status-content">
+            <div class="status-label">Likęs laikas</div>
+            <div class="status-value" id="remaining">00:00:00</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-icon">🕒</div>
+          <div class="status-content">
+            <div class="status-label">RTC laikas</div>
+            <div class="status-value" id="currentTime">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card sensor-card">
+      <h2>🌡️ Aplinkos duomenys</h2>
+      <div class="sensor-grid">
+        <div class="sensor-item">
+          <div class="sensor-icon">🌡️</div>
+          <div class="sensor-content">
+            <div class="sensor-label">Temperatūra</div>
+            <div class="sensor-value" id="temp">-</div>
+          </div>
+        </div>
+        <div class="sensor-item">
+          <div class="sensor-icon">💧</div>
+          <div class="sensor-content">
+            <div class="sensor-label">Drėgmė</div>
+            <div class="sensor-value" id="hum">-</div>
+          </div>
+        </div>
+        <div class="sensor-item">
+          <div class="sensor-icon">🌪️</div>
+          <div class="sensor-content">
+            <div class="sensor-label">Slėgis</div>
+            <div class="sensor-value" id="pres">-</div>
+          </div>
+        </div>
+        <div class="sensor-item">
+          <div class="sensor-icon">💧</div>
+          <div class="sensor-content">
+            <div class="sensor-label">Vandens lygis</div>
+            <div class="sensor-value" id="waterLevel">-</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="grid">
-    <div class="card">
-      <h2>📊 Būsena</h2>
-      <div class="kv"><div>⏱️ Laistymas prasidės po</div><div id="nextStart">-</div></div>
-      <div class="kv"><div>🪟 Liko laiko langui</div><div id="windowLeft">00:00:00</div></div>
-      <div class="kv"><div>🗂️ Būsena</div><div id="state">-</div></div>
-      <div class="kv"><div>⏳ Likęs laikas</div><div id="remaining">00:00:00</div></div>
-      <div class="kv"><div>🕒 RTC</div><div id="currentTime">-</div></div>
+  <div class="card control-card">
+    <h2>🎮 Valdymas</h2>
+    <div class="control-buttons">
+      <button id="startBtn" class="control-btn start-btn" type="button">
+        <span class="btn-icon">▶️</span>
+        <span class="btn-text">Paleisti laistymą</span>
+      </button>
+      <button id="stopBtn" class="control-btn stop-btn danger" type="button">
+        <span class="btn-icon">⏹️</span>
+        <span class="btn-text">Sustabdyti laistymą</span>
+      </button>
     </div>
-    <div class="card">
-      <h2>Aplinkos duomenys</h2>
-      <div class="kv"><div>Temperatūra (°C)</div><div id="temp">-</div></div>
-      <div class="kv"><div>Drėgmė (%)</div><div id="hum">-</div></div>
-      <div class="kv"><div>Slėgis (hPa)</div><div id="pres">-</div></div>
-      <div class="kv"><div>Vandens lygis</div><div id="waterLevel">-</div></div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:12px;">
-    <div class="row">
-      <button id="startBtn" type="button">▶️ Paleisti laistymą</button>
-      <button id="stopBtn" class="danger" type="button">⏹️ Sustabdyti laistymą</button>
+    <div class="progress-container" id="progressContainer" style="display: none;">
+      <div class="progress-bar" id="progressBar"></div>
     </div>
   </div>
-
-  <div id="globalMsg" class="global"></div>
 
   <script>
+    // Tema valdoma iš common.js
+
     function fmtHMS(sec){
       if(sec == null || isNaN(sec) || sec < 0) return '-';
       const s = Math.floor(sec);
       const h = Math.floor(s/3600);
       const m = Math.floor((s%3600)/60);
       const ss = s%60;
-      const pad = n=> String(n).padStart(2,'0');
-      return `${pad(h)}:${pad(m)}:${pad(ss)}`;
+      return `${pad(h)}:${pad(m)}:${pad(ss)}`; // Naudojame pad iš common.js
     }
+    
+    function getStateDisplay(state) {
+      const stateMap = {
+        'Idle': { text: 'Laukia', class: 'status-idle' },
+        'WindowOpen': { text: 'Langas atidarytas', class: 'status-windowopen' },
+        'Watering': { text: 'Laisto', class: 'status-watering' },
+        'ErrorPaused': { text: 'Pauzė (klaida)', class: 'status-errorpaused' }
+      };
+      
+      const stateInfo = stateMap[state] || { text: state, class: 'status-idle' };
+      return `<span class="status-indicator ${stateInfo.class}">${stateInfo.text}</span>`;
+    }
+    
+    function getWaterLevelDisplay(level) {
+      if (level === 'YRA') {
+        return `<span class="water-level-indicator water-yra">💧 Yra vandens</span>`;
+      } else if (level === 'NERA') {
+        return `<span class="water-level-indicator water-nera">⚠️ Nėra vandens</span>`;
+      } else {
+        return `<span class="water-level-indicator water-unknown">❓ ${level}</span>`;
+      }
+    }
+    
     // Konfigūracijos ribos (užpildoma iš /config)
     const limits = { tempMin:null, tempMax:null, humMin:null, humMax:null, presMin:null, presMax:null };
+    
     async function loadLimits(){
       try{
-        const r = await fetch('/config');
-        if(!r.ok) return;
+        const r = await fetch('/config', { headers: buildAuthHeaders() });
+        if(!r.ok) throw new Error('HTTP '+r.status);
         const cfg = await r.json();
         if(cfg && cfg.bme280){
           ['tempMin','tempMax','humMin','humMax','presMin','presMax'].forEach(k=>{
             if (cfg.bme280[k] != null) limits[k] = Number(cfg.bme280[k]);
           });
         }
-        // Atnaujinti autentifikacijos statusą
-        updateAuthStatus();
       }catch(e){ /* tyliai, neblokuojame */ }
     }
     
-    function updateAuthStatus(){
-      const token = localStorage.getItem('apiToken');
-      const el = document.getElementById('authStatus');
-      if(token && token.trim()) {
-        el.textContent = '🔒';
-        el.title = 'Autentifikacija įjungta';
-      } else {
-        el.textContent = '🔓';
-        el.title = 'Autentifikacija išjungta';
-      }
-    }
+
+    
     function colorizeValue(elId, value, min, max){
       const el = document.getElementById(elId);
-      el.classList.remove('ok','err','val','global'); // apsauga nuo paveldėtų
+      el.classList.remove('ok','err','warning','val'); // apsauga nuo paveldėtų
       el.classList.add('val');
       if (Number.isFinite(value) && Number.isFinite(min) && Number.isFinite(max)){
-        el.classList.add((value >= min && value <= max) ? 'ok' : 'err');
+        if (value >= min && value <= max) {
+          el.classList.add('ok');
+        } else if (Math.abs(value - min) <= (max - min) * 0.1 || Math.abs(value - max) <= (max - min) * 0.1) {
+          el.classList.add('warning');
+        } else {
+          el.classList.add('err');
+        }
       }
     }
-    function setMsg(t){
-      const bar = document.getElementById('globalMsg');
-      bar.textContent = t||'';
-      bar.className = 'global ' + (!t ? '' : (String(t).toLowerCase().includes('klaida')? 'err':'ok'));
+    
+    // showMessage funkcija iš common.js
+    
+    function updateProgressBar(remaining, total) {
+      const container = document.getElementById('progressContainer');
+      const bar = document.getElementById('progressBar');
+      
+      if (remaining > 0 && total > 0) {
+        const percentage = ((total - remaining) / total) * 100;
+        bar.style.width = percentage + '%';
+        container.style.display = 'block';
+      } else {
+        container.style.display = 'none';
+      }
     }
 
+    // UI atnaujinimo funkcijos
+    function updateStateDisplay(state) {
+      document.getElementById('stateDisplay').innerHTML = getStateDisplay(state);
+      updateButtonStates(state);
+    }
+    
+    function updateProgress(data) {
+      const remaining = Number(data.remainingTimeSec || 0);
+      const total = remaining > 0 ? remaining + (data.state === 'Watering' ? 0 : 0) : 0;
+      document.getElementById('remaining').textContent = fmtHMS(remaining);
+      updateProgressBar(remaining, total);
+    }
+    
+    function updateSensors(data) {
+      // Aplinkos duomenys
+      document.getElementById('temp').textContent = (data.temp ?? '-') + ' °C';
+      document.getElementById('hum').textContent = (data.hum ?? '-') + ' %';
+      document.getElementById('pres').textContent = (data.pres ?? '-') + ' hPa';
+      colorizeValue('temp', Number(data.temp), limits.tempMin, limits.tempMax);
+      colorizeValue('hum', Number(data.hum), limits.humMin, limits.humMax);
+      colorizeValue('pres', Number(data.pres), limits.presMin, limits.presMax);
+      
+      // Vandens lygis
+      document.getElementById('waterLevel').innerHTML = getWaterLevelDisplay(data.waterLevel || 'UNKNOWN');
+      
+      // Klaidų indikacija jutikliams - nerodome pranešimo, nes tai yra automatinis atnaujinimas
+      const hasSensorErrors = (data.temp === -999.0 || data.hum === -999.0 || data.pres === -999.0);
+      if(hasSensorErrors) {
+        // Nerodome pranešimo, nes tai yra automatinis atnaujinimas
+        // showFunctionMessage('Jutikliai', 'Dėmesio: kai kurie jutikliai neveikia', 'warning');
+      }
+    }
+    
+    function updateNextWatering(data) {
+      document.getElementById('currentTime').textContent = (data.currentTime || '-').replace('T',' ');
+      document.getElementById('nextStart').textContent = fmtHMS(data.nextStartInSec);
+      document.getElementById('windowLeft').textContent = fmtHMS(data.windowRemainingSec);
+    }
+    
     async function loadStatus(){
       try{
-        const res = await fetch('/status');
-        if(!res.ok) throw new Error('HTTP '+res.status);
-        const s = await res.json();
-        document.getElementById('temp').textContent = (s.temp ?? '-');
-        document.getElementById('hum').textContent = (s.hum ?? '-');
-        document.getElementById('pres').textContent = (s.pres ?? '-');
-        colorizeValue('temp', Number(s.temp), limits.tempMin, limits.tempMax);
-        colorizeValue('hum', Number(s.hum), limits.humMin, limits.humMax);
-        colorizeValue('pres', Number(s.pres), limits.presMin, limits.presMax);
-        document.getElementById('waterLevel').textContent = s.waterLevel || '-';
-        document.getElementById('state').textContent = s.state || '-';
-        document.getElementById('remaining').textContent = fmtHMS(Number(s.remainingTimeSec || 0));
-        document.getElementById('currentTime').textContent = (s.currentTime || '-').replace('T',' ');
-        document.getElementById('nextStart').textContent = fmtHMS(s.nextStartInSec);
-        document.getElementById('windowLeft').textContent = fmtHMS(s.windowRemainingSec);
+        const r = await fetch('/status', { headers: buildAuthHeaders() });
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        const data = await r.json();
         
-        // Klaidų indikacija jutikliams
-        const hasSensorErrors = (s.temp === -999.0 || s.hum === -999.0 || s.pres === -999.0);
-        if(hasSensorErrors) {
-          setMsg('Dėmesio: kai kurie jutikliai neveikia');
-        } else {
-          setMsg('Atnaujinta.');
-        }
-      }catch(e){ setMsg('Klaida: '+e.message); }
+        // Atnaujinti UI
+        updateStateDisplay(data.state);
+        updateProgress(data);
+        updateSensors(data);
+        updateNextWatering(data);
+        
+        // Nerodome "Atnaujinta" pranešimo, nes duomenys atsinaujina automatiškai
+      }catch(e){
+        showFunctionMessage('Statusas', 'Klaida kraunant: ' + e.message, 'err');
+      }
+    }
+    
+    async function loadLimits(){
+      try{
+        const r = await fetch('/config', { headers: buildAuthHeaders() });
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        const cfg = await r.json();
+        
+        // Atnaujinti UI su ribomis
+        updateProgress({ 
+          wateringDurationMin: cfg.wateringDurationMin || 30,
+          remainingWateringTimeSec: 0 
+        });
+        
+        // Nerodome pranešimo, nes tai yra automatinis atnaujinimas
+      }catch(e){
+        showFunctionMessage('Ribos', 'Klaida kraunant: ' + e.message, 'err');
+      }
+    }
+    
+    function updateButtonStates(state) {
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      
+      if (state === 'Watering') {
+        startBtn.disabled = true;
+        startBtn.classList.add('disabled');
+        stopBtn.disabled = false;
+        stopBtn.classList.remove('disabled');
+      } else {
+        startBtn.disabled = false;
+        startBtn.classList.remove('disabled');
+        stopBtn.disabled = true;
+        stopBtn.classList.add('disabled');
+      }
     }
 
-    // Auto atnaujinimas visada įjungtas; intervalas iš localStorage
-    function getRefreshMs(){
-      const v = parseInt(localStorage.getItem('uiRefreshMs')||'1000', 10);
-      return (Number.isFinite(v) && v >= 250 ? v : 1000);
+    function animateValue(elementId, startValue, endValue, duration = 1000) {
+      const element = document.getElementById(elementId);
+      if (!element) return;
+      
+      const start = performance.now();
+      const startNum = parseFloat(startValue) || 0;
+      const endNum = parseFloat(endValue) || 0;
+      
+      function update(currentTime) {
+        const elapsed = currentTime - start;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        const current = startNum + (endNum - startNum) * progress;
+        element.textContent = current.toFixed(1);
+        
+        if (progress < 1) {
+          requestAnimationFrame(update);
+        }
+      }
+      
+      requestAnimationFrame(update);
     }
+
+    // getRefreshMs funkcija iš common.js
+    
     let timer = null;
     function startAuto(){
       if (timer) clearInterval(timer);
       loadStatus();
       timer = setInterval(loadStatus, getRefreshMs());
     }
+    
     // Reaguoti į nustatymų keitimą kituose languose
     window.addEventListener('storage', (e) => {
       if (e.key === 'uiRefreshMs') {
         startAuto();
       }
     });
+    
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) { if (timer) { clearInterval(timer); timer = null; } }
-      else { startAuto(); }
+      if (document.hidden) { 
+        if (timer) { clearInterval(timer); timer = null; } 
+      } else { 
+        startAuto(); 
+      }
     });
 
-    function getApiToken(){ return (localStorage.getItem('apiToken')||'').trim(); }
-    function buildAuthHeaders(){ const h={}; const tok=getApiToken(); if(tok) h['X-API-Token']=tok; return h; }
+    // buildAuthHeaders funkcija iš common.js
+    
+    // Individualūs pranešimai kiekvienai funkcijai
+    function showFunctionMessage(functionName, message, type = 'ok') {
+      showMessage(`${functionName}: ${message}`, type);
+    }
+    
     async function start(){
-      setMsg('Siunčiamas START...');
+      showFunctionMessage('Laistymas', 'Siunčiamas START...', 'info');
       try{
         const r = await fetch('/start', { method:'POST', headers: buildAuthHeaders() });
-        const t = await r.text();
-        if(!r.ok) throw new Error(t||('HTTP '+r.status));
-        setMsg('Paleista. '+t);
+        if(!r.ok) {
+          const t = await r.text();
+          throw new Error(t||('HTTP '+r.status));
+        }
+        showFunctionMessage('Laistymas', 'Paleista sėkmingai');
         loadStatus();
-      }catch(e){ setMsg('Nepavyko paleisti: '+e.message); }
+      }catch(e){ 
+        showFunctionMessage('Laistymas', 'Nepavyko paleisti: ' + e.message, 'err');
+      }
     }
+    
     async function stop(){
-      setMsg('Siunčiamas STOP...');
+      showFunctionMessage('Laistymas', 'Siunčiamas STOP...', 'info');
       try{
         const r = await fetch('/stop', { method:'POST', headers: buildAuthHeaders() });
-        const t = await r.text();
-        if(!r.ok) throw new Error(t||('HTTP '+r.status));
-        setMsg('Sustabdyta. '+t);
+        if(!r.ok) {
+          const t = await r.text();
+          throw new Error(t||('HTTP '+r.status));
+        }
+        showFunctionMessage('Laistymas', 'Sustabdyta sėkmingai');
         loadStatus();
-      }catch(e){ setMsg('Nepavyko sustabdyti: '+e.message); }
+      }catch(e){ 
+        showFunctionMessage('Laistymas', 'Nepavyko sustabdyti: ' + e.message, 'err');
+      }
     }
+    
+    async function restart(){
+      showFunctionMessage('Sistema', 'Siunčiamas RESTART...', 'info');
+      try{
+        const r = await fetch('/restart', { method:'POST', headers: buildAuthHeaders() });
+        if(!r.ok) {
+          const t = await r.text();
+          throw new Error(t||('HTTP '+r.status));
+        }
+        showFunctionMessage('Sistema', 'Perkraunama sėkmingai');
+        setTimeout(() => {
+          showFunctionMessage('Sistema', 'Perkraunama...', 'warning');
+        }, 2000);
+      }catch(e){ 
+        showFunctionMessage('Sistema', 'Nepavyko perkrauti: ' + e.message, 'err');
+      }
+    }
+    
     document.getElementById('startBtn').addEventListener('click', start);
     document.getElementById('stopBtn').addEventListener('click', stop);
+    
     // Paleisti automatinį atnaujinimą ir užkrauti ribas
     loadLimits().finally(startAuto);
   </script>

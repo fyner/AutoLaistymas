@@ -1,22 +1,23 @@
 {
-  "time": "2025-05-08T08:00:00",
-  "wateringDurationMin": 60,
-  "toleranceWindowMin": 120,
+  "time": "2024-01-01T00:00:00",
+  "wateringDurationMin": 5,
+  "toleranceWindowMin": 15,
   "sensorReadIntervalMs": 1000,
-  "pauseResumeCheckIntervalMs": 1000,
+  "pauseResumeCheckIntervalMs": 5000,
+  "wateringTimes": ["06:00", "18:00"],
   "waterLevel": {
     "minState": "HIGH",
     "debounceSamples": 5,
-    "debounceIntervalMs": 50,
+    "debounceIntervalMs": 100,
     "pullMode": "PULLUP"
   },
   "bme280": {
-    "tempMin": 5.0,
-    "tempMax": 35.0,
-    "humMin": 30.0,
-    "humMax": 80.0,
-    "presMin": 950.0,
-    "presMax": 1050.0
+    "tempMin": 10,
+    "tempMax": 35,
+    "humMin": 30,
+    "humMax": 80,
+    "presMin": 900,
+    "presMax": 1100
   },
   "wifi": {
     "apSsid": "AutoLaistymas",
@@ -25,7 +26,6 @@
     "apHidden": false
   },
   "relay": {
-    "activeLevel": "LOW"
-  },
-  "apiToken": ""
+    "activeLevel": "HIGH"
+  }
 }
